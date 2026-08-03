@@ -10,6 +10,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 from forecasting import run_prediction
+from live_weather import fetch_current_conditions
 from agent import run_agent
 from report_generator import generate_report, report_to_html
 
@@ -65,6 +66,16 @@ class EmailReportRequest(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/weather/now")
+def weather_now(lat: float, lon: float):
+    """Current conditions only — no activity/scoring — powers the homepage's
+    'weather right now' card."""
+    data = fetch_current_conditions(lat, lon)
+    if data is None:
+        return {"available": False}
+    return {"available": True, **data}
 
 
 @app.post("/predict")

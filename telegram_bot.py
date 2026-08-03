@@ -9,6 +9,8 @@ Usage:
   python telegram_bot.py
 """
 
+import asyncio
+import html
 import os
 import logging
 import requests
@@ -57,28 +59,38 @@ def format_suitability(status: str) -> str:
 
 
 def build_reply(data: dict) -> tuple[str, InlineKeyboardMarkup | None]:
-    """Turn the agent JSON into a nicely formatted Telegram message."""
-    lines = [f"🌤 *Weatherly AI*\n\n{data['reply']}"]
+    """Turn the agent JSON into a nicely formatted Telegram message.
+
+    Uses HTML parse mode (not Telegram's legacy Markdown) — place names,
+    addresses, and explanation text routinely contain '_', '*', '(', ')', '.'
+    which break Markdown's parser (400 "can't parse entities"). HTML's escaping
+    surface is just &, <, > (one html.escape() call), far less error-prone than
+    hand-escaping every Markdown special character in dynamic content.
+    """
+    esc = html.escape
+    lines = [f"🌤 <b>Weatherly AI</b>\n\n{esc(data['reply'])}"]
 
     options = data.get("options", [])
     if options:
-        lines.append("\n*📊 Top Results:*")
+        lines.append("\n<b>📊 Top Results:</b>")
         for i, opt in enumerate(options[:3]):
             icon = format_suitability(opt["suitability_status"])
+            conf_label = opt.get("confidence_label")
+            conf_line = f"\n  <i>{esc(conf_label)}</i>" if conf_label else ""
             lines.append(
-                f"\n{icon} *{opt['location'].split(',')[0]}* — {opt['date']}\n"
+                f"\n{icon} <b>{esc(opt['location'].split(',')[0])}</b> — {esc(opt['date'])}\n"
                 f"  Score: {opt['score']}/100  |  "
                 f"🌡 {opt['temp']}°C  💧 {opt['rain']}mm  💨 {opt['wind']}km/h\n"
-                f"  _{', '.join(opt['reasons'][:2])}_"
+                f"  <i>{esc(', '.join(opt['reasons'][:2]))}</i>{conf_line}"
             )
 
     # Build venue buttons for the top result
     buttons = []
     if options and options[0].get("venues"):
-        lines.append(f"\n*📍 Nearby venues ({options[0]['location'].split(',')[0]}):*")
+        lines.append(f"\n<b>📍 Nearby venues ({esc(options[0]['location'].split(',')[0])}):</b>")
         for venue in options[0]["venues"][:4]:
             name_short = venue["name"][:28]
-            lines.append(f"  • {name_short} ({venue['type']}, {venue['distance_km']} km)")
+            lines.append(f"  • {esc(name_short)} ({esc(venue['type'])}, {venue['distance_km']} km)")
             buttons.append([
                 InlineKeyboardButton(
                     f"🗺 {name_short}",
@@ -100,51 +112,84 @@ def build_reply(data: dict) -> tuple[str, InlineKeyboardMarkup | None]:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "👋 *Welcome to Weatherly AI!*\n\n"
-        "I help you plan events, trips, and farming activities using weather intelligence.\n\n"
-        "*Try asking:*\n"
-        "• _Can I organize a wedding in Kandy next month?_\n"
-        "• _Best beach spots in India six months from now?_\n"
-        "• _Is it safe to harvest rice in Colombo next week?_\n"
-        "• _Compare Galle vs Kandy for an outdoor party_\n\n"
+        "👋 <b>Welcome to Weatherly AI!</b>\n\n"
+        "I help you plan days out, trips, events, and farming activities using weather intelligence.\n\n"
+        "<b>Try asking:</b>\n"
+        "• <i>What's the weather like in Colombo today?</i>\n"
+        "• <i>Is tomorrow good for a beach day in Galle?</i>\n"
+        "• <i>Can I organize a wedding in Kandy next month?</i>\n"
+        "• <i>Is it safe to harvest rice in Colombo next week?</i>\n\n"
         "Just type your question! 🌤",
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "*Weatherly AI — What I can do:*\n\n"
-        "🎉 *Event Planning*\n"
+        "<b>Weatherly AI — What I can do:</b>\n\n"
+        "🌤 <b>Day &amp; Trip Planning</b>\n"
+        "  Real live weather for today/this week, plus longer-range trip planning\n\n"
+        "🎉 <b>Event Planning</b>\n"
         "  Wedding venues, outdoor parties, festivals, sports tournaments\n\n"
-        "🌾 *Farming Advice*\n"
+        "🌾 <b>Farming Advice</b>\n"
         "  Planting windows, harvest timing, irrigation scheduling, frost alerts\n\n"
-        "✈️ *Travel Planning*\n"
-        "  Best destinations by season, beach holidays, hiking trips\n\n"
-        "📍 *Venue & Hotel Links*\n"
+        "📍 <b>Venue &amp; Hotel Links</b>\n"
         "  I find real nearby venues with map links automatically\n\n"
-        "💬 *I remember context* — ask follow-ups like 'what about next week instead?'\n\n"
+        "💬 <b>I remember context</b> — ask follow-ups like 'what about next week instead?'\n\n"
         "Type anything to get started!",
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
+
+
+async def _typing_keepalive(bot, chat_id: int, stop_event: asyncio.Event) -> None:
+    """Telegram's typing indicator auto-expires after ~5s, but the agent call
+    can take 10-90s — resend it every 4s until the agent call resolves so the
+    chat doesn't go quiet mid-response (which reads as broken)."""
+    while not stop_event.is_set():
+        try:
+            await bot.send_chat_action(chat_id, "typing")
+        except Exception:
+            pass
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=4.0)
+        except asyncio.TimeoutError:
+            pass
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     text = update.message.text
+    chat_id = update.effective_chat.id
 
-    # Show typing indicator while the agent thinks (takes 10-60s)
-    await context.bot.send_chat_action(update.effective_chat.id, "typing")
-
+    stop_event = asyncio.Event()
+    keepalive_task = asyncio.create_task(_typing_keepalive(context.bot, chat_id, stop_event))
     try:
-        data = call_agent(user_id, text)
+        # call_agent is a blocking `requests.post` — run it off the event loop so
+        # the keepalive task above can actually keep firing while it waits.
+        data = await asyncio.to_thread(call_agent, user_id, text)
         user_sessions[user_id] = data["session_id"]
         reply, keyboard = build_reply(data)
+
+        options = data.get("options", [])
+        top_image = options[0].get("image_url") if options else None
+        if top_image:
+            try:
+                await update.message.reply_photo(
+                    photo=top_image,
+                    caption=f"📍 {options[0]['location'].split(',')[0]}",
+                )
+            except Exception as img_err:
+                logging.warning("Failed to send destination photo: %s", img_err)
+
         await update.message.reply_text(
             reply,
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=keyboard,
             disable_web_page_preview=True,
+        )
+    except requests.exceptions.Timeout:
+        await update.message.reply_text(
+            "⏱️ That's taking longer than expected — please try again in a moment."
         )
     except requests.exceptions.ConnectionError:
         await update.message.reply_text(
@@ -156,6 +201,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(
             "Something went wrong — please try again or rephrase your question."
         )
+    finally:
+        stop_event.set()
+        await keepalive_task
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -3,10 +3,11 @@ import {
   Send, Sparkles, Loader, MapPin, Calendar, ChevronDown, ChevronUp,
   Wand2, Hotel, TreePine, ExternalLink, Navigation, Sprout,
   AlertTriangle, CheckCircle2, Shield, Heart, Star, Download,
-  Mail, Info, Thermometer, Wind, Droplets, Cloud, Mic,
+  Mail, Info, Thermometer, Wind, Droplets, Cloud, Mic, Globe,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
+import CurrentWeatherCard from "./CurrentWeatherCard";
 
 // ─────────────────────────────────────────────
 // Types
@@ -21,6 +22,12 @@ type VenueResult = {
   website: string | null;
   osm_link: string;
   address: string | null;
+};
+
+type OnlineVenueResult = {
+  name: string;
+  description: string;
+  url: string | null;
 };
 
 type FarmingResult = {
@@ -61,7 +68,9 @@ type AgentOption = {
   lat: number;
   lon: number;
   venues: VenueResult[];
+  online_venues: OnlineVenueResult[];
   farming: FarmingResult | null;
+  image_url: string | null;
 };
 
 type AgentResponse = {
@@ -89,12 +98,12 @@ type ChatMessage =
 // ─────────────────────────────────────────────
 
 const SUGGESTIONS = [
+  "What's the weather like in Colombo today?",
+  "Is tomorrow good for a beach day in Galle?",
+  "Plan a weekend trip to Kandy next weekend",
   "Can I organize a wedding in Kandy next month?",
-  "Best beach spots in India six months from now?",
-  "Compare Galle vs Kandy for an outdoor party next weekend",
-  "Safest date for a cricket tournament in Colombo next month?",
+  "Compare Galle vs Kandy for an outdoor party",
   "Is it safe to harvest rice in Polonnaruwa next week?",
-  "Best time to plant vegetables in Jaffna this season?",
 ];
 
 const confidenceStyle: Record<string, string> = {
@@ -157,7 +166,7 @@ export default function ChatPlanner() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
-      text: "Hi, I'm the Weatherly AI Planning Agent. I help event planners and farmers make smarter decisions using weather intelligence.\n\nAsk me about weddings, parties, outdoor events, beach trips — or farming questions like planting windows, harvest timing, and crop risk alerts. I'll analyze Comfort, Safety, and Activity Suitability separately, explain my reasoning, find nearby venues, and remember context across turns.",
+      text: "Hi, I'm Weatherly — ask me what to plan around the weather. Try a day out, a weekend trip, an event, or a farming question, and I'll check real forecasts, score comfort/safety, suggest nearby places, and explain my reasoning.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -168,6 +177,7 @@ export default function ChatPlanner() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const transcriptRef = useRef("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -254,12 +264,12 @@ export default function ChatPlanner() {
     <div className="flex flex-col h-full max-w-3xl mx-auto w-full pt-16">
       {/* Header */}
       <div className="flex items-center gap-2.5 px-4 pb-3 pt-2">
-        <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
+        <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center shrink-0">
           <Sparkles className="w-4 h-4 text-white" />
         </div>
         <div>
           <div className="font-semibold text-sm text-gray-900">Weatherly AI Planning Agent</div>
-          <div className="text-xs text-gray-500">Comfort · Safety · Suitability — for events &amp; farming</div>
+          <div className="text-xs text-gray-500">Comfort · Safety · Suitability for trips, events &amp; farming</div>
         </div>
       </div>
 
@@ -276,7 +286,12 @@ export default function ChatPlanner() {
         )}
       </div>
 
-      {/* Suggestion chips */}
+      {/* Current weather + suggestion chips */}
+      {messages.length <= 1 && (
+        <div className="px-4 pb-1">
+          <CurrentWeatherCard onAskAI={() => inputRef.current?.focus()} />
+        </div>
+      )}
       {messages.length <= 1 && (
         <div className="px-4 pb-3 flex flex-wrap gap-2">
           {SUGGESTIONS.map((s) => (
@@ -308,6 +323,7 @@ export default function ChatPlanner() {
         className="flex items-center gap-2 p-4 border-t border-gray-200 bg-white"
       >
         <input
+          ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={listening ? "Speak now…" : "e.g. 'Best beach vacation in Thailand next month?'"}
@@ -353,7 +369,7 @@ export default function ChatPlanner() {
           type="submit"
           size="icon"
           disabled={loading}
-          className="rounded-full bg-blue-600 hover:bg-blue-700 text-white shrink-0"
+          className="rounded-full bg-green-600 hover:bg-green-700 text-white shrink-0"
         >
           <Send className="w-4 h-4" />
         </Button>
@@ -492,6 +508,17 @@ function OptionCard({ option: o, isTop, agentData }: { option: AgentOption; isTo
 
   return (
     <Card className={`bg-white border-gray-200 p-3 gap-0 shadow-sm ${isTop ? "ring-2 ring-blue-500/20 border-blue-200" : ""}`}>
+      {o.image_url && (
+        <div className="-mx-3 -mt-3 mb-2 h-28 overflow-hidden rounded-t-xl">
+          <img
+            src={o.image_url}
+            alt={o.location.split(",")[0]}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        </div>
+      )}
       {/* Location + grade */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5 text-xs text-gray-500 truncate">
@@ -615,6 +642,7 @@ function OptionCard({ option: o, isTop, agentData }: { option: AgentOption; isTo
       )}
 
       {o.farming && <FarmingPanel farming={o.farming} />}
+      {o.online_venues && o.online_venues.length > 0 && <OnlineVenueList venues={o.online_venues} />}
       {o.venues && o.venues.length > 0 && <VenueList venues={o.venues} />}
     </Card>
   );
@@ -806,6 +834,51 @@ function FarmingPanel({ farming }: { farming: FarmingResult }) {
 }
 
 // ─────────────────────────────────────────────
+// Online venue list (Google-Search-grounded recommendations)
+// ─────────────────────────────────────────────
+
+function OnlineVenueList({ venues }: { venues: OnlineVenueResult[] }) {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <div className="mt-2 border-t border-gray-100 pt-2">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between text-[11px] text-gray-500 hover:text-gray-700 transition-colors"
+      >
+        <span className="flex items-center gap-1.5">
+          <Globe className="w-3 h-3 text-blue-400" />
+          <span className="font-medium">{venues.length} venue recommendation{venues.length !== 1 ? "s" : ""} (web search)</span>
+        </span>
+        {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+      </button>
+
+      {open && (
+        <ul className="mt-2 space-y-2">
+          {venues.map((v, i) => (
+            <li key={i} className="flex items-start gap-2 p-2 bg-gray-50 rounded-lg border border-gray-100">
+              <Globe className="w-3.5 h-3.5 shrink-0 text-blue-500 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="text-[12px] font-medium text-gray-800">{v.name}</div>
+                {v.description && (
+                  <div className="text-[11px] text-gray-500 mt-0.5">{v.description}</div>
+                )}
+                {v.url && (
+                  <a href={v.url} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-[11px] text-blue-500 hover:text-blue-700 font-medium transition-colors mt-1">
+                    <ExternalLink className="w-2.5 h-2.5" /> Visit website
+                  </a>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // Venue list
 // ─────────────────────────────────────────────
 
@@ -819,7 +892,7 @@ const VENUE_TYPE_ICON: Record<string, React.ReactNode> = {
 };
 
 function VenueList({ venues }: { venues: VenueResult[] }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
 
   return (
     <div className="mt-2 border-t border-gray-100 pt-2">
