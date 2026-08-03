@@ -15,6 +15,8 @@ import requests
 import joblib
 from prophet import Prophet
 
+import live_weather
+
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "activity_suitability_model.pkl")
 ENCODER_PATH = os.path.join(os.path.dirname(__file__), "activity_encoder.pkl")
 
@@ -137,8 +139,44 @@ def fetch_current_data(lat: float, lon: float) -> dict:
 
 
 def run_prediction(lat: float, lon: float, start_date: datetime, end_date: datetime, activity: str) -> dict:
-    """Core forecasting pipeline. This is the primary TOOL the agent calls —
-    it can be invoked multiple times per request (different dates/locations)."""
+    """Dispatches to a real live forecast (Open-Meteo) when the ENTIRE requested
+    range falls within its ~16-day forecast horizon — accurate for "today",
+    "tomorrow", "this weekend" style questions, which is what most day/trip
+    planning actually asks. Anything further out falls back to the climatology
+    pipeline below, which is a 20-year historical average — appropriate for
+    long-range questions ("next month", "6 months from now") but wrong for
+    near-term ones. Falls back automatically if Open-Meteo is unreachable."""
+    live_predictions = live_weather.fetch_open_meteo(lat, lon, start_date, end_date)
+    if live_predictions is not None:
+        days_ahead = (start_date.date() - datetime.now().date()).days
+        final_predictions = {}
+        for date_str, pred in sorted(live_predictions.items()):
+            pred["feels_like"] = _feels_like(pred["T2M"], pred["RH2M"], pred["WS10M"])
+            pred["CloudPct"] = pred["CLOUD_AMT"]
+            pred["suitability_status"] = predict_suitability_ml(pred, activity)
+            final_predictions[date_str] = pred
+
+        if days_ahead <= 7:
+            confidence, confidence_label = "high", "Live short-range forecast (Open-Meteo, high confidence)"
+        else:
+            confidence, confidence_label = "medium", "Live medium-range forecast (Open-Meteo, moderate confidence)"
+
+        return {
+            "location": {"lat": lat, "lon": lon},
+            "activity": activity,
+            "date_range": f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
+            "predictions": final_predictions,
+            "confidence": confidence,
+            "confidence_label": confidence_label,
+        }
+
+    return _run_prediction_climatology(lat, lon, start_date, end_date, activity)
+
+
+def _run_prediction_climatology(lat: float, lon: float, start_date: datetime, end_date: datetime, activity: str) -> dict:
+    """20-year NASA POWER historical average + Prophet trend fit. This is the
+    original forecasting pipeline — kept as-is for long-range questions that
+    fall outside Open-Meteo's forecast horizon (see run_prediction above)."""
     date_range = pd.date_range(start=start_date, end=end_date)
 
     current_data = fetch_current_data(lat, lon)

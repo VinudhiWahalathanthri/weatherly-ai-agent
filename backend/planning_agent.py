@@ -7,22 +7,30 @@ into a structured intent {location, date_phrase, activity, event_size},
 resolves that intent into a concrete lat/lon + date range, and hands off
 to the existing weather/ML pipeline in main.py.
 
-LLM layer: tries a local Ollama server (as described in the proposal —
-Llama 3 / Mistral 7B) for natural-language understanding. If Ollama isn't
-running, falls back to a lightweight rule-based extractor so the agent
-still works out of the box without any extra setup.
+LLM layer (call_llm_json, below): tries Gemini first when GEMINI_API_KEY is
+set — it's faster and more reliable at structured JSON output than the
+local model. Falls back to a local Ollama model if Gemini isn't configured
+or errors, and finally to a lightweight rule-based extractor, so the agent
+still works out of the box with zero cloud setup.
 """
 
 import json
+import os
 import re
 import time
 import calendar
 from datetime import datetime, timedelta
 
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "qwen2.5"  
+OLLAMA_MODEL = "qwen3.5"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 # Nominatim's usage policy caps public-instance traffic at 1 request/second.
 # https://operations.osmfoundation.org/policies/nominatim/
@@ -209,23 +217,193 @@ ACTIVITY_KEYWORDS = {
 WEEKDAYS = {name.lower(): i for i, name in enumerate(calendar.day_name)}
 
 
-def _ollama_available() -> bool:
-    """Returns True only if Ollama is running AND the configured model is loaded."""
+def _resolve_ollama_model() -> str | None:
+    """Returns the exact installed model tag (e.g. "qwen3.5:4b") matching OLLAMA_MODEL's
+    base name, or None if Ollama isn't running or that model isn't installed.
+
+    /api/generate needs an exact tag match — asking for "qwen3.5" 404s with
+    "model not found" if only "qwen3.5:4b" is actually pulled, so we resolve
+    the real installed tag instead of guessing at it.
+    """
     try:
         resp = requests.get("http://localhost:11434/api/tags", timeout=2.0)
         if resp.status_code != 200:
-            return False
-        models = [m.get("name", "") for m in resp.json().get("models", [])]
-        # Accept "qwen2.5", "qwen2.5:latest", "qwen2.5:7b", etc.
-        return any(OLLAMA_MODEL.split(":")[0] in m for m in models)
+            return None
+        base = OLLAMA_MODEL.split(":")[0]
+        for m in resp.json().get("models", []):
+            name = m.get("name", "")
+            if name.split(":")[0] == base:
+                return name
+        return None
     except Exception:
-        return False
+        return None
+
+
+_gemini_client = None
+
+
+def _get_gemini_client():
+    """Lazily constructs the Gemini client once GEMINI_API_KEY is confirmed set.
+    Import is deferred so the app still runs if google-genai isn't installed
+    and the user only wants the Ollama/rule-based path."""
+    global _gemini_client
+    if _gemini_client is None and GEMINI_API_KEY:
+        from google import genai
+        _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    return _gemini_client
+
+
+def _call_gemini_json(prompt: str) -> dict | None:
+    client = _get_gemini_client()
+    if client is None:
+        return None
+    try:
+        from google.genai import types
+        resp = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            # response_mime_type=json makes Gemini return a raw JSON string
+            # directly — no regex-extraction-from-prose needed, unlike Ollama.
+            config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.2),
+        )
+        text = (resp.text or "").strip()
+        return json.loads(text) if text else None
+    except Exception as e:
+        print(f"Gemini JSON call failed: {e}")
+        return None
+
+
+_CHITCHAT_FALLBACK = "Hey! I'm Weatherly — ask me about the weather for a day out, a trip, an event, or a farming activity and I'll help you plan around it."
+
+
+def _call_gemini_text(prompt: str) -> str | None:
+    """Plain-text Gemini call (no JSON mime type) for short conversational
+    replies — used for greetings/small-talk, not structured extraction."""
+    client = _get_gemini_client()
+    if client is None:
+        return None
+    try:
+        from google.genai import types
+        resp = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=0.6, max_output_tokens=60),
+        )
+        text = (resp.text or "").strip()
+        return text or None
+    except Exception as e:
+        print(f"Gemini text call failed: {e}")
+        return None
+
+
+def generate_chitchat_reply(message: str) -> str:
+    """Short, casual reply for greetings/thanks/small-talk — skips the JSON
+    tool-calling path entirely since there's nothing to plan here."""
+    if not GEMINI_API_KEY:
+        return _CHITCHAT_FALLBACK
+    prompt = (
+        "You are Weatherly, a friendly weather-planning assistant for day trips, "
+        "events, and farming. The user just sent a casual message (greeting, thanks, "
+        "or small talk), not a planning question. Reply in 1 short, warm sentence "
+        "(max ~20 words), optionally inviting them to ask about weather for a trip, "
+        "event, or farming activity. No markdown, no quotes around your reply.\n\n"
+        f'User said: "{message}"\nYour reply:'
+    )
+    return _call_gemini_text(prompt) or _CHITCHAT_FALLBACK
+
+
+def search_venues_online(location: str, activity: str) -> list[dict] | None:
+    """Uses Gemini's Google Search grounding to find real, currently-operating
+    venues for an activity near a location — actual named businesses with
+    working website/Maps links, not just OpenStreetMap tag data. Returns
+    None if Gemini isn't configured or the call/parse fails (caller falls
+    back to the OSM-based find_venues tool); returns [] if Gemini genuinely
+    found nothing.
+    """
+    client = _get_gemini_client()
+    if client is None:
+        return None
+    try:
+        from google.genai import types
+        prompt = (
+            f'Find up to 4 real, currently-operating venues suitable for hosting "{activity}" '
+            f"near {location}. Use Google Search to confirm each one actually exists right now — "
+            "never invent a place. Prefer venues that have a real website or Google Maps listing.\n\n"
+            "Respond with ONLY a JSON array (no markdown fences, no other text) where each item has "
+            'exactly these keys: "name" (string), "description" (one short sentence on why it fits), '
+            '"url" (its real website or Google Maps link, or null if none was found).'
+        )
+        resp = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            # Grounding tools can't be combined with response_mime_type=json, so we
+            # ask for JSON in plain text and extract it the same way the Ollama
+            # fallback does elsewhere in this module.
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                temperature=0.3,
+            ),
+        )
+        text = (resp.text or "").strip()
+        match = re.search(r"\[.*\]", text, re.DOTALL)
+        if not match:
+            return None
+        results = json.loads(match.group(0))
+        cleaned = []
+        for r in results[:5]:
+            if isinstance(r, dict) and r.get("name"):
+                cleaned.append({
+                    "name": str(r["name"]),
+                    "description": str(r.get("description") or ""),
+                    "url": r.get("url") or None,
+                })
+        return cleaned
+    except Exception as e:
+        print(f"Gemini web venue search failed: {e}")
+        return None
+
+
+def _call_ollama_json(prompt: str, timeout: int) -> dict | None:
+    model = _resolve_ollama_model()
+    if not model:
+        return None
+    try:
+        resp = requests.post(
+            OLLAMA_URL,
+            # think=False skips qwen3.5's chain-of-thought pass — with it enabled a
+            # single call took ~170s (831 tokens of reasoning) and blew any
+            # reasonable timeout, silently forcing callers into their fallback path.
+            json={"model": model, "prompt": prompt, "stream": False, "think": False},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        text = resp.json().get("response", "").strip()
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if not match:
+            return None
+        return json.loads(match.group(0))
+    except Exception as e:
+        print(f"Ollama JSON call failed: {e}")
+        return None
+
+
+def call_llm_json(prompt: str, timeout: int = 20) -> dict | None:
+    """Unified LLM entry point shared by intent extraction and the ReAct
+    agent loop (agent.py). Tries Gemini first when GEMINI_API_KEY is set —
+    it's faster and more reliable at structured JSON output than the local
+    4B Ollama model — and falls back to Ollama if Gemini isn't configured
+    or the call fails, so the agent still works with zero cloud setup.
+    Returns None if nothing is available/parsable — callers decide how to
+    fall back further (rules-based extraction, deterministic planner action).
+    """
+    if GEMINI_API_KEY:
+        result = _call_gemini_json(prompt)
+        if result is not None:
+            return result
+    return _call_ollama_json(prompt, timeout=timeout)
 
 
 def _extract_intent_llm(message: str) -> dict | None:
-    if not _ollama_available():
-        return None
-
     prompt = f"""You extract structured planning intent from a user's weather-planning request.
 Respond with ONLY a JSON object, no other text, in this exact shape:
 {{"location": "<city/place name or null>", "date_phrase": "<the phrase describing when, or null>", "activity": "<short activity description or null>", "event_size": "<number of people if mentioned, else null>"}}
@@ -233,27 +411,15 @@ Respond with ONLY a JSON object, no other text, in this exact shape:
 User request: "{message}"
 JSON:"""
 
-    try:
-        resp = requests.post(
-            OLLAMA_URL,
-            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        text = resp.json().get("response", "").strip()
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if not match:
-            return None
-        parsed = json.loads(match.group(0))
-        return {
-            "location": parsed.get("location") or None,
-            "date_phrase": parsed.get("date_phrase") or None,
-            "activity": parsed.get("activity") or None,
-            "event_size": parsed.get("event_size") or None,
-        }
-    except Exception as e:
-        print(f"Ollama intent extraction failed, falling back to rules: {e}")
+    parsed = call_llm_json(prompt, timeout=20)
+    if parsed is None:
         return None
+    return {
+        "location": parsed.get("location") or None,
+        "date_phrase": parsed.get("date_phrase") or None,
+        "activity": parsed.get("activity") or None,
+        "event_size": parsed.get("event_size") or None,
+    }
 
 
 def _extract_intent_rules(message: str) -> dict:
@@ -296,6 +462,31 @@ def _extract_intent_rules(message: str) -> dict:
         "indoor", "what", "which", "where", "when", "how", "can", "will", "would",
         "should", "is", "are", "was", "my", "your", "our", "their", "some", "any",
         "compare", "find", "get", "show", "tell", "give", "help", "please",
+    }
+
+    # Used only by the last-resort location fallback (step 6 below): a much wider
+    # net of filler/question/domain words to strip out so whatever remains is
+    # (hopefully) just the place name, however plainly it was typed.
+    _FILLER_WORDS = _COMMON_WORDS | {
+        "i", "we", "you", "it", "in", "at", "on", "to", "of", "or", "and", "with",
+        "no", "not", "do", "does", "doing", "did", "have", "having", "had", "be",
+        "if", "so", "there", "here", "me", "us", "them", "he", "she", "they",
+        "want", "wanna", "like", "plan", "planning", "organize", "organise",
+        "hold", "holding", "host", "hosting", "go", "going", "visit", "visiting",
+        "weather", "forecast", "climate", "conditions", "condition", "temperature",
+        "idea", "safety", "risk", "risky", "possible", "advisable", "recommend",
+        "recommended", "suitable", "ok", "okay",
+        "rain", "raining", "rainy", "sunny", "cloudy", "hot", "cold", "cool",
+        "warm", "windy", "humid", "look", "looking", "looks", "seem", "seems",
+        "outside", "out", "day", "days", "week", "weeks",
+        "month", "months", "weekend", "tomorrow", "today", "now", "from", "then",
+        "please", "thanks", "thank",
+        # Contractions with the apostrophe already stripped by lower() — "what's"
+        # arrives here as "whats", etc.
+        "whats", "hows", "wheres", "whens", "whos", "thats", "theres", "im",
+        "ive", "youre", "youve", "dont", "doesnt", "didnt", "isnt", "arent",
+        "wasnt", "werent", "wont", "cant", "couldnt", "wouldnt", "shouldnt",
+        "hasnt", "havent",
     }
 
     # 1. Explicit comparison: "Compare X vs Y", "X vs Y", "X or Y for ..."
@@ -349,6 +540,29 @@ def _extract_intent_rules(message: str) -> dict:
             candidate = tail_match.group(1).strip()
             if candidate.lower() not in _COMMON_WORDS:
                 location = candidate
+
+    if not location:
+        # 6. Last resort — strip out everything already recognized (the activity
+        # keyword, the date phrase, filler/question words) and treat whatever's
+        # left as the place name. Covers phrasing with no preposition, comma, or
+        # capitalization to anchor on, e.g. a bare "homagama sri lanka".
+        remainder = lower
+        if date_phrase:
+            remainder = remainder.replace(date_phrase, " ")
+        if activity:
+            for kw in ACTIVITY_KEYWORDS[activity]:
+                remainder = re.sub(rf"\b{re.escape(kw)}\w*", " ", remainder)
+        remainder = re.sub(r"\d+\s*(?:people|guests|attendees)", " ", remainder)
+        remainder = re.sub(rf"\b(?:{'|'.join(_FILLER_WORDS)})\b", " ", remainder)
+        remainder = re.sub(r"[^\w\s]", " ", remainder)
+        remainder = re.sub(r"\s+", " ", remainder).strip()
+        # Real bare place names are short ("Kandy", "Homagama Sri Lanka"). A long
+        # leftover means the message genuinely has no location — e.g. "spend the
+        # day with my friends outdoors" reduces to "spend friends outdoors nice
+        # date time proper", which is noise, not a place. Guessing on it just
+        # sends a nonsense query to the geocoder instead of asking the user.
+        if remainder and 3 <= len(remainder) and len(remainder.split()) <= 4:
+            location = remainder.title()
 
     # Event size
     size_match = re.search(r"(\d{1,5})\s*(?:people|guests|attendees)", lower)

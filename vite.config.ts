@@ -17,6 +17,7 @@ export default defineConfig({
       "/predict": "http://localhost:8000",
       "/agent":   "http://localhost:8000",
       "/health":  "http://localhost:8000",
+      "/weather": "http://localhost:8000",
     },
   },
 });

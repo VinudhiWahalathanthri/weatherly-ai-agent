@@ -9,3 +9,4 @@ scikit-learn
 joblib
 python-dotenv
 python-telegram-bot
+google-genai
