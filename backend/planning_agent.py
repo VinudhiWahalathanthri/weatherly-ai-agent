@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 import requests
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "qwen2.5"  
+OLLAMA_MODEL = "qwen3.5"  
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 # Nominatim's usage policy caps public-instance traffic at 1 request/second.
 # https://operations.osmfoundation.org/policies/nominatim/
@@ -209,21 +209,31 @@ ACTIVITY_KEYWORDS = {
 WEEKDAYS = {name.lower(): i for i, name in enumerate(calendar.day_name)}
 
 
-def _ollama_available() -> bool:
-    """Returns True only if Ollama is running AND the configured model is loaded."""
+def _resolve_ollama_model() -> str | None:
+    """Returns the exact installed model tag (e.g. "qwen3.5:4b") matching OLLAMA_MODEL's
+    base name, or None if Ollama isn't running or that model isn't installed.
+
+    /api/generate needs an exact tag match — asking for "qwen3.5" 404s with
+    "model not found" if only "qwen3.5:4b" is actually pulled, so we resolve
+    the real installed tag instead of guessing at it.
+    """
     try:
         resp = requests.get("http://localhost:11434/api/tags", timeout=2.0)
         if resp.status_code != 200:
-            return False
-        models = [m.get("name", "") for m in resp.json().get("models", [])]
-        # Accept "qwen2.5", "qwen2.5:latest", "qwen2.5:7b", etc.
-        return any(OLLAMA_MODEL.split(":")[0] in m for m in models)
+            return None
+        base = OLLAMA_MODEL.split(":")[0]
+        for m in resp.json().get("models", []):
+            name = m.get("name", "")
+            if name.split(":")[0] == base:
+                return name
+        return None
     except Exception:
-        return False
+        return None
 
 
 def _extract_intent_llm(message: str) -> dict | None:
-    if not _ollama_available():
+    model = _resolve_ollama_model()
+    if not model:
         return None
 
     prompt = f"""You extract structured planning intent from a user's weather-planning request.
@@ -236,8 +246,11 @@ JSON:"""
     try:
         resp = requests.post(
             OLLAMA_URL,
-            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
-            timeout=15,
+            # think=False skips qwen3.5's chain-of-thought pass — with it enabled a
+            # single extraction took ~170s (831 tokens of reasoning) and blew the
+            # timeout on every request, silently forcing the rule-based fallback.
+            json={"model": model, "prompt": prompt, "stream": False, "think": False},
+            timeout=20,
         )
         resp.raise_for_status()
         text = resp.json().get("response", "").strip()
@@ -298,6 +311,31 @@ def _extract_intent_rules(message: str) -> dict:
         "compare", "find", "get", "show", "tell", "give", "help", "please",
     }
 
+    # Used only by the last-resort location fallback (step 6 below): a much wider
+    # net of filler/question/domain words to strip out so whatever remains is
+    # (hopefully) just the place name, however plainly it was typed.
+    _FILLER_WORDS = _COMMON_WORDS | {
+        "i", "we", "you", "it", "in", "at", "on", "to", "of", "or", "and", "with",
+        "no", "not", "do", "does", "doing", "did", "have", "having", "had", "be",
+        "if", "so", "there", "here", "me", "us", "them", "he", "she", "they",
+        "want", "wanna", "like", "plan", "planning", "organize", "organise",
+        "hold", "holding", "host", "hosting", "go", "going", "visit", "visiting",
+        "weather", "forecast", "climate", "conditions", "condition", "temperature",
+        "idea", "safety", "risk", "risky", "possible", "advisable", "recommend",
+        "recommended", "suitable", "ok", "okay",
+        "rain", "raining", "rainy", "sunny", "cloudy", "hot", "cold", "cool",
+        "warm", "windy", "humid", "look", "looking", "looks", "seem", "seems",
+        "outside", "out", "day", "days", "week", "weeks",
+        "month", "months", "weekend", "tomorrow", "today", "now", "from", "then",
+        "please", "thanks", "thank",
+        # Contractions with the apostrophe already stripped by lower() — "what's"
+        # arrives here as "whats", etc.
+        "whats", "hows", "wheres", "whens", "whos", "thats", "theres", "im",
+        "ive", "youre", "youve", "dont", "doesnt", "didnt", "isnt", "arent",
+        "wasnt", "werent", "wont", "cant", "couldnt", "wouldnt", "shouldnt",
+        "hasnt", "havent",
+    }
+
     # 1. Explicit comparison: "Compare X vs Y", "X vs Y", "X or Y for ..."
     cmp_match = re.search(
         r"(?i)(?:compare\s+)?([A-Za-z][A-Za-z\s]{1,20}?)\s+(?:vs\.?|versus|or)\s+([A-Za-z][A-Za-z\s]{1,20}?)(?=\s+(?:for|next|this|in|on)\b|[.?!,]|$)",
@@ -349,6 +387,24 @@ def _extract_intent_rules(message: str) -> dict:
             candidate = tail_match.group(1).strip()
             if candidate.lower() not in _COMMON_WORDS:
                 location = candidate
+
+    if not location:
+        # 6. Last resort — strip out everything already recognized (the activity
+        # keyword, the date phrase, filler/question words) and treat whatever's
+        # left as the place name. Covers phrasing with no preposition, comma, or
+        # capitalization to anchor on, e.g. a bare "homagama sri lanka".
+        remainder = lower
+        if date_phrase:
+            remainder = remainder.replace(date_phrase, " ")
+        if activity:
+            for kw in ACTIVITY_KEYWORDS[activity]:
+                remainder = re.sub(rf"\b{re.escape(kw)}\w*", " ", remainder)
+        remainder = re.sub(r"\d+\s*(?:people|guests|attendees)", " ", remainder)
+        remainder = re.sub(rf"\b(?:{'|'.join(_FILLER_WORDS)})\b", " ", remainder)
+        remainder = re.sub(r"[^\w\s]", " ", remainder)
+        remainder = re.sub(r"\s+", " ", remainder).strip()
+        if remainder and len(remainder) >= 3:
+            location = remainder.title()
 
     # Event size
     size_match = re.search(r"(\d{1,5})\s*(?:people|guests|attendees)", lower)

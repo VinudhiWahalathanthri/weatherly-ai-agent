@@ -3,7 +3,7 @@ import {
   Send, Sparkles, Loader, MapPin, Calendar, ChevronDown, ChevronUp,
   Wand2, Hotel, TreePine, ExternalLink, Navigation, Sprout,
   AlertTriangle, CheckCircle2, Shield, Heart, Star, Download,
-  Mail, Info, Thermometer, Wind, Droplets, Cloud,
+  Mail, Info, Thermometer, Wind, Droplets, Cloud, Mic,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -110,6 +110,45 @@ const gradeColor: Record<string, string> = {
 
 const API_BASE = "";
 
+// Web Speech API only ships as the vendor-prefixed webkitSpeechRecognition
+// outside Firefox, and there's no @types package for it — declare just the
+// shape this component actually uses instead of reaching for `any`.
+interface SpeechRecognitionResultLike {
+  isFinal: boolean;
+  0: { transcript: string };
+}
+
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: ArrayLike<SpeechRecognitionResultLike>;
+}
+
+interface SpeechRecognitionInstance {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+}
+
+type SpeechRecognitionCtorType = new () => SpeechRecognitionInstance;
+
+const SpeechRecognitionCtor: SpeechRecognitionCtorType | null =
+  (window as unknown as { SpeechRecognition?: SpeechRecognitionCtorType }).SpeechRecognition ??
+  (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionCtorType }).webkitSpeechRecognition ??
+  null;
+
+// Voices a Sri Lankan farmer is likely to speak — extend as needed.
+const VOICE_LANGUAGES = [
+  { code: "en-US", label: "EN" },
+  { code: "si-LK", label: "SI" },
+  { code: "ta-LK", label: "TA" },
+];
+
 // ─────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────
@@ -123,12 +162,21 @@ export default function ChatPlanner() {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [voiceLang, setVoiceLang] = useState(VOICE_LANGUAGES[0].code);
   const sessionIdRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const transcriptRef = useRef("");
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
+
+  // Stop any in-flight recognition if the component unmounts mid-recording.
+  useEffect(() => {
+    return () => recognitionRef.current?.abort();
+  }, []);
 
   const send = async (text: string) => {
     const message = text.trim();
@@ -160,6 +208,46 @@ export default function ChatPlanner() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const startListening = () => {
+    if (!SpeechRecognitionCtor || loading || listening) return;
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = voiceLang;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    transcriptRef.current = "";
+
+    recognition.onresult = (event: SpeechRecognitionEventLike) => {
+      let finalText = "";
+      let interimText = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const chunk = event.results[i][0].transcript;
+        if (event.results[i].isFinal) finalText += chunk + " ";
+        else interimText += chunk;
+      }
+      transcriptRef.current = (transcriptRef.current + finalText).trim();
+      setInput((transcriptRef.current + " " + interimText).trim());
+    };
+
+    recognition.onerror = () => setListening(false);
+
+    recognition.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+      const finalMessage = transcriptRef.current.trim();
+      if (finalMessage) send(finalMessage);
+    };
+
+    recognitionRef.current = recognition;
+    setInput("");
+    setListening(true);
+    recognition.start();
+  };
+
+  const stopListening = () => {
+    recognitionRef.current?.stop();
   };
 
   return (
@@ -203,6 +291,17 @@ export default function ChatPlanner() {
         </div>
       )}
 
+      {/* Listening indicator */}
+      {listening && (
+        <div className="px-4 pb-1 flex items-center gap-1.5 text-xs text-red-500">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+          </span>
+          Listening… release the mic to send
+        </div>
+      )}
+
       {/* Input */}
       <form
         onSubmit={(e) => { e.preventDefault(); send(input); }}
@@ -211,9 +310,45 @@ export default function ChatPlanner() {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="e.g. 'Best beach vacation in Thailand next month?'"
+          placeholder={listening ? "Speak now…" : "e.g. 'Best beach vacation in Thailand next month?'"}
           className="flex-1 bg-gray-50 border border-gray-300 rounded-full px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
         />
+
+        {SpeechRecognitionCtor && (
+          <>
+            <select
+              value={voiceLang}
+              onChange={(e) => setVoiceLang(e.target.value)}
+              disabled={listening}
+              title="Voice input language"
+              className="text-xs bg-gray-50 border border-gray-300 rounded-full px-2 py-2.5 text-gray-500 outline-none shrink-0"
+            >
+              {VOICE_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>{l.label}</option>
+              ))}
+            </select>
+
+            <Button
+              type="button"
+              size="icon"
+              disabled={loading}
+              onMouseDown={startListening}
+              onMouseUp={stopListening}
+              onMouseLeave={() => listening && stopListening()}
+              onTouchStart={(e) => { e.preventDefault(); startListening(); }}
+              onTouchEnd={(e) => { e.preventDefault(); stopListening(); }}
+              title="Hold to talk"
+              className={`rounded-full shrink-0 transition-colors ${
+                listening
+                  ? "bg-red-500 hover:bg-red-600 text-white animate-pulse"
+                  : "bg-gray-100 hover:bg-gray-200 text-gray-600"
+              }`}
+            >
+              <Mic className="w-4 h-4" />
+            </Button>
+          </>
+        )}
+
         <Button
           type="submit"
           size="icon"
