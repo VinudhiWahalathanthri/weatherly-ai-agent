@@ -81,7 +81,7 @@ The backend will now be running on `http://127.0.0.1:8000`.
 
 ---
 
-## AI Planning Agent (matches the "Agentic AI System Design" in the proposal)
+## AI Planning Agent 
 
 `POST /agent/chat` is a real tool-using agent, not a single prompt-to-answer wrapper:
 
