@@ -30,12 +30,14 @@ planning logic.
 """
 
 import json
+import math
 import re
+from datetime import datetime
 
 from planning_agent import (
     extract_intent, geocode_location, resolve_date_phrase, resolve_scan_range,
     get_country_city_suggestions, call_llm_json, generate_chitchat_reply,
-    search_venues_online,
+    search_venues_online, parse_iso_date,
 )
 from forecasting import run_prediction
 from venue_discovery import find_venues as _find_venues_api
@@ -106,11 +108,11 @@ def _merge_with_memory(intent: dict, message: str, session: dict) -> dict:
     merged = dict(intent)
 
     if not _is_followup(message):
-        for key in ("date_phrase", "activity", "event_size"):
+        for key in ("date_phrase", "start_date", "end_date", "activity", "event_size"):
             if not merged.get(key) and last.get(key):
                 merged[key] = last[key]
     else:
-        for key in ("location", "date_phrase", "activity", "event_size"):
+        for key in ("location", "date_phrase", "start_date", "end_date", "activity", "event_size"):
             if not merged.get(key) and last.get(key):
                 merged[key] = last[key]
     return merged
@@ -158,6 +160,14 @@ def _sample_windows(start, end, max_samples: int = 4):
     return windows
 
 
+def _same_place(lat1: float, lon1: float, lat2: float, lon2: float, threshold_km: float = 3.0) -> bool:
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    return R * 2 * math.asin(math.sqrt(a)) <= threshold_km
+
+
 def _resolve_evaluated(state: dict, location_hint: str | None) -> dict | None:
     if not location_hint:
         return None
@@ -185,6 +195,8 @@ def _tool_geocode(args: dict, state: dict, activity: str) -> dict:
 def _tool_evaluate_location(args: dict, state: dict, activity: str) -> dict:
     location = (args.get("location") or "").strip()
     date_phrase = args.get("date_phrase") or state.get("date_phrase")
+    start_date_arg = args.get("start_date") or state.get("start_date")
+    end_date_arg = args.get("end_date") or state.get("end_date")
     scan = bool(args.get("scan", False))
     if not location:
         return {"error": "no location given"}
@@ -200,9 +212,14 @@ def _tool_evaluate_location(args: dict, state: dict, activity: str) -> dict:
         return {"resolved": False, "reason": geo_detail}
     resolved_name = geo_detail
 
+    explicit_start = parse_iso_date(start_date_arg)
+    explicit_end = parse_iso_date(end_date_arg) or explicit_start
+
     if scan:
         scan_start, scan_end = resolve_scan_range(date_phrase or "next month")
         windows = _sample_windows(scan_start, scan_end, max_samples=4)
+    elif explicit_start:
+        windows = [(explicit_start, explicit_end)]
     else:
         start, end = resolve_date_phrase(date_phrase or "next month")
         windows = [(start, end)]
@@ -222,11 +239,20 @@ def _tool_evaluate_location(args: dict, state: dict, activity: str) -> dict:
     if best_date is None:
         return {"resolved": True, "location": resolved_name, "error": "no usable forecast days in that range"}
 
-    state["evaluated"][resolved_name] = {
+    existing_key = None
+    for key, opt in state["evaluated"].items():
+        if _same_place(lat, lon, opt["lat"], opt["lon"]):
+            existing_key = key
+            break
+    target_key = existing_key or resolved_name
+    prior = state["evaluated"].get(target_key, {})
+
+    state["evaluated"][target_key] = {
         "location_name": resolved_name, "lat": lat, "lon": lon,
         "date": best_date, "pred": best_pred, "scoring": best_scoring,
         "confidence": confidence, "confidence_label": confidence_label,
-        "venues": [], "online_venues": [], "farming": None, "image_url": get_place_image(resolved_name),
+        "venues": prior.get("venues", []), "online_venues": prior.get("online_venues", []),
+        "farming": prior.get("farming"), "image_url": prior.get("image_url") or get_place_image(resolved_name),
     }
     return {
         "resolved": True, "location": resolved_name, "best_date": best_date,
@@ -288,11 +314,13 @@ TOOL_SPECS = {
                         "country/region) and get its coordinates, without fetching weather yet.",
     },
     "evaluate_location": {
-        "args": "location (string), date_phrase (string or null — defaults to the extracted date), scan (boolean, default false)",
+        "args": "location (string), start_date and end_date (YYYY-MM-DD, or null to use the extracted date), scan (boolean, default false)",
         "description": "The main tool. Geocodes a location, fetches its forecast/climate data, and "
                         "scores it (Comfort/Safety/Suitability/Overall + risks) for the activity. Call "
-                        f"once per candidate location, up to {MAX_LOCATIONS}. Set scan=true only when "
-                        "the user wants the single best/safest date across a wide range, not a specific one.",
+                        f"once per candidate location, up to {MAX_LOCATIONS}. Compute start_date/end_date "
+                        "yourself from today's date and whatever the user said — do the date arithmetic, "
+                        "don't just repeat their words. Set scan=true only when the user wants the single "
+                        "best/safest date across a wide range (leave start_date/end_date null in that case).",
     },
     "find_venues": {
         "args": "location (string, must match an already-evaluated location)",
@@ -358,11 +386,16 @@ def _summarize_observation(tool_name: str, obs: dict) -> str:
 def _build_decision_prompt(message: str, intent: dict, scratchpad: list[str], candidate_hint: str) -> str:
     tools_block = _format_tools_for_prompt()
     scratchpad_block = "\n".join(scratchpad) if scratchpad else "(nothing yet — this is your first move)"
+    today = datetime.now()
+    date_hint = ""
+    if intent.get("start_date"):
+        date_hint = f", already computed as start_date={intent.get('start_date')!r} end_date={intent.get('end_date') or intent.get('start_date')!r} — reuse these"
     return f"""You are the planning engine of a weather-decision agent. You never talk to the \
 user directly — you choose ONE next action by calling a tool, based on everything known so far.
+Today's actual date is {today.strftime('%Y-%m-%d')} ({today.strftime('%A')}).
 
 User's original request: "{message}"
-Extracted intent: location={intent.get('location')!r}, date={intent.get('date_phrase')!r}, activity={intent.get('activity')!r}, event_size={intent.get('event_size')!r}
+Extracted intent: location={intent.get('location')!r}, date={intent.get('date_phrase')!r}{date_hint}, activity={intent.get('activity')!r}, event_size={intent.get('event_size')!r}
 {candidate_hint}
 
 Tools available:
@@ -463,7 +496,12 @@ def run_agent(message: str, session_id: str) -> dict:
         candidate_hint += ("\nThe user explicitly asked about venues/hotels/places to stay — you must "
                             "call find_venues for at least one evaluated location before finishing.")
 
-    state = {"evaluated": {}, "date_phrase": intent.get("date_phrase")}
+    state = {
+        "evaluated": {},
+        "date_phrase": intent.get("date_phrase"),
+        "start_date": intent.get("start_date"),
+        "end_date": intent.get("end_date"),
+    }
     scratchpad: list[str] = []
     ask_user_question = None
     finish_args = None
@@ -471,7 +509,7 @@ def run_agent(message: str, session_id: str) -> dict:
 
     for i in range(MAX_ITERATIONS):
         prompt = _build_decision_prompt(message, intent, scratchpad, candidate_hint)
-        decision = call_llm_json(prompt, timeout=25)
+        decision = call_llm_json(prompt, timeout=15)
 
         if decision is None or "tool" not in decision or decision.get("tool") not in TOOL_SPECS:
             consecutive_failures += 1

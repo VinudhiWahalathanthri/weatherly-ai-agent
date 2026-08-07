@@ -69,6 +69,14 @@ WORD_TO_NUM: dict[str, int] = {
     "eleven": 11, "twelve": 12,
 }
 
+MONTH_NAMES: dict[str, int] = {
+    "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3,
+    "april": 4, "apr": 4, "may": 5, "june": 6, "jun": 6, "july": 7, "jul": 7,
+    "august": 8, "aug": 8, "september": 9, "sep": 9, "sept": 9,
+    "october": 10, "oct": 10, "november": 11, "nov": 11, "december": 12, "dec": 12,
+}
+_MONTH_RE = "|".join(sorted(MONTH_NAMES.keys(), key=len, reverse=True))
+
 COUNTRY_ACTIVITY_CITIES: dict[str, dict[str, list[str]]] = {
     "india": {
         "beach":   ["Goa, India", "Varkala, India", "Pondicherry, India", "Kovalam, India"],
@@ -387,18 +395,27 @@ def call_llm_json(prompt: str, timeout: int = 20) -> dict | None:
 
 
 def _extract_intent_llm(message: str) -> dict | None:
-    prompt = f"""You are the front door of a weather-planning assistant. First judge whether this \
-message is actually a planning request (asking about weather for a trip, event, day out, or farming \
-activity) versus casual conversation (greetings, thanks, small talk, "what can you do", asking who you \
-are, etc). Getting this right matters — misreading a greeting as a planning request wastes time \
-running a full weather lookup on nothing.
+    today = datetime.now()
+    prompt = f"""You are the front door of a weather-planning assistant. Today's actual date is \
+{today.strftime('%Y-%m-%d')} ({today.strftime('%A')}) — use this as your reference point for any \
+relative or absolute date the user mentions ("next month", "tomorrow", "the 9th of August", "in three \
+weeks", "the first weekend of September", whatever phrasing they use). Do the date arithmetic yourself \
+and give back real calendar dates — don't make the caller guess what your words meant.
 
-If it IS a planning request, extract the fields (missing ones are null, not guessed).
-If it is NOT, leave the fields null and instead write a short, warm, in-character reply (max ~20 words) \
-as "casual_reply" — you're Weatherly, a weather-planning assistant for trips, events, and farming.
+First judge whether this message is actually a planning request (asking about weather for a trip, \
+event, day out, or farming activity) versus casual conversation (greetings, thanks, small talk, "what \
+can you do", asking who you are, etc). Getting this right matters — misreading a greeting as a planning \
+request wastes time running a full weather lookup on nothing.
+
+If it IS a planning request, extract the fields (missing ones are null, not guessed). For the date: if \
+the user named or implied a specific time, compute start_date and end_date (YYYY-MM-DD, inclusive — for \
+a single day just repeat the same date in both). If they gave no time indication at all, leave both null.
+If it is NOT a planning request, leave the fields null and instead write a short, warm, in-character \
+reply (max ~20 words) as "casual_reply" — you're Weatherly, a weather-planning assistant for trips, \
+events, and farming.
 
 Respond with ONLY a JSON object, no other text, in this exact shape:
-{{"is_planning_request": <true or false>, "location": "<city/place name or null>", "date_phrase": "<the phrase describing when, or null>", "activity": "<short activity description or null>", "event_size": "<number of people if mentioned, else null>", "casual_reply": "<reply if not a planning request, else null>"}}
+{{"is_planning_request": <true or false>, "location": "<city/place name or null>", "date_phrase": "<the phrase describing when, verbatim or paraphrased, or null>", "start_date": "<YYYY-MM-DD or null>", "end_date": "<YYYY-MM-DD or null>", "activity": "<short activity description or null>", "event_size": "<number of people if mentioned, else null>", "casual_reply": "<reply if not a planning request, else null>"}}
 
 User message: "{message}"
 JSON:"""
@@ -406,11 +423,21 @@ JSON:"""
     parsed = call_llm_json(prompt, timeout=20)
     if parsed is None:
         return None
+    location = parsed.get("location") or None
+    activity = parsed.get("activity") or None
+    is_planning_request = parsed.get("is_planning_request", True)
+    if is_planning_request is False and (location or activity):
+        # A smaller/local model can contradict itself — flagging "not a planning
+        # request" while still extracting a location or activity. Trust the
+        # concrete extraction over the classification in that case.
+        is_planning_request = True
     return {
-        "is_planning_request": parsed.get("is_planning_request", True),
-        "location": parsed.get("location") or None,
+        "is_planning_request": is_planning_request,
+        "location": location,
         "date_phrase": parsed.get("date_phrase") or None,
-        "activity": parsed.get("activity") or None,
+        "start_date": parsed.get("start_date") or None,
+        "end_date": parsed.get("end_date") or None,
+        "activity": activity,
         "event_size": parsed.get("event_size") or None,
         "casual_reply": parsed.get("casual_reply") or None,
     }
@@ -435,6 +462,8 @@ def _extract_intent_rules(message: str) -> dict:
         rf"in (?:{word_nums}) (?:day|days|week|weeks|month|months)",
         r"next (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)",
         r"on \d{4}-\d{2}-\d{2}", r"\d{4}-\d{2}-\d{2}",
+        rf"\b(?:{_MONTH_RE})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?(?:,?\s+\d{{4}})?\b",
+        rf"\b\d{{1,2}}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:{_MONTH_RE})\.?(?:,?\s+\d{{4}})?\b",
     ]
     date_phrase = None
     for pat in date_patterns:
@@ -548,6 +577,8 @@ def extract_intent(message: str) -> dict:
         intent = _extract_intent_rules(message)
         intent["is_planning_request"] = True
         intent["casual_reply"] = None
+        intent["start_date"] = None
+        intent["end_date"] = None
     elif intent.get("is_planning_request") is False:
         pass
     else:
@@ -616,6 +647,40 @@ def _parse_count(text: str) -> int | None:
     return None
 
 
+def _parse_month_day_year(phrase: str) -> tuple[int, int, int | None] | None:
+    """Finds a month name and a 1-31 day number anywhere in the phrase (in either
+    order — "august 9" or "9th of august"), plus an optional 4-digit year."""
+    month_match = re.search(rf"\b({_MONTH_RE})\.?\b", phrase)
+    if not month_match:
+        return None
+    month = MONTH_NAMES[month_match.group(1)]
+
+    day = None
+    for day_match in re.finditer(r"\b(\d{1,2})(?:st|nd|rd|th)?\b", phrase):
+        candidate = int(day_match.group(1))
+        if 1 <= candidate <= 31 and len(day_match.group(1)) <= 2:
+            day = candidate
+            break
+    if day is None:
+        return None
+
+    year_match = re.search(r"\b(\d{4})\b", phrase)
+    year = int(year_match.group(1)) if year_match else None
+    return month, day, year
+
+
+def parse_iso_date(value: str | None) -> datetime | None:
+    """Validates and parses a YYYY-MM-DD string (as computed by the LLM's own
+    date arithmetic in extract_intent). Returns None on anything malformed so
+    callers can fall back to the phrase-based resolver below."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value.strip(), "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
 def resolve_date_phrase(phrase: str | None) -> tuple[datetime, datetime]:
     """Resolves a relative-date phrase into a concrete (start, end) datetime range.
     Defaults to 'next month' (a representative week) if nothing is understood."""
@@ -626,6 +691,19 @@ def resolve_date_phrase(phrase: str | None) -> tuple[datetime, datetime]:
     if explicit:
         d = datetime.strptime(explicit.group(1), "%Y-%m-%d")
         return d, d + timedelta(days=2)
+
+    month_day = _parse_month_day_year(phrase)
+    if month_day:
+        month, day, year = month_day
+        resolved_year = year or now.year
+        try:
+            d = datetime(resolved_year, month, day)
+        except ValueError:
+            d = None
+        if d:
+            if year is None and d.date() < now.date():
+                d = d.replace(year=resolved_year + 1)
+            return d, d + timedelta(days=2)
 
     if "tomorrow" in phrase:
         d = now + timedelta(days=1)
