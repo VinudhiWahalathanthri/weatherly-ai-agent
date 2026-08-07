@@ -41,7 +41,7 @@ from planning_agent import (
 )
 from forecasting import run_prediction
 from venue_discovery import find_venues as _find_venues_api
-from farming import farming_analysis as _farming_analysis_api
+from farming import farming_analysis as _farming_analysis_api, CROP_PROFILES
 from scoring_engine import compute_scores, explain_decision
 from images import get_place_image
 
@@ -52,6 +52,24 @@ _VENUE_REQUEST_KEYWORDS = {
     "venue", "venues", "hotel", "hotels", "place to stay", "places to stay",
     "where to hold", "where to host", "accommodation", "accomodation",
     "stay near", "book a place", "resort", "resorts",
+}
+
+_FARMING_KEYWORDS = {kw for profile in CROP_PROFILES for kw in profile.keywords} | {
+    "farming", "farm", "agriculture", "agricultural", "crop", "crops",
+    "livestock", "cultivat", "sow", "sowing", "irrigat", "harvest", "planting",
+}
+
+
+def _is_farming_activity(activity: str) -> bool:
+    lower = (activity or "").lower()
+    return any(kw in lower for kw in _FARMING_KEYWORDS)
+
+_NO_PREFERENCE_KEYWORDS = {
+    "anywhere", "any city", "any location", "any place", "any where",
+    "you decide", "you choose", "you pick", "your choice", "your pick",
+    "doesnt matter", "doesn't matter", "no preference", "no specific city",
+    "wherever", "surprise me", "up to you", "not sure", "i dont know",
+    "i don't know", "no idea",
 }
 
 _GREETING_FILLER = r"(?:\s+(?:there|everyone|guys|friend|folks|team))?"
@@ -172,8 +190,11 @@ def _resolve_evaluated(state: dict, location_hint: str | None) -> dict | None:
     if not location_hint:
         return None
     hint = location_hint.strip().lower()
+    hint_first = hint.split(",")[0].strip()
     for key, opt in state["evaluated"].items():
-        if hint == key.lower() or hint == key.lower().split(",")[0] or hint in key.lower():
+        key_lower = key.lower()
+        key_first = key_lower.split(",")[0].strip()
+        if hint == key_lower or hint_first == key_first or hint in key_lower:
             return opt
     return None
 
@@ -184,6 +205,7 @@ def _tool_geocode(args: dict, state: dict, activity: str) -> dict:
         return {"error": "no location given"}
     lat, lon, geo_detail = geocode_location(location)
     if lat is None:
+        state.setdefault("failed_locations", set()).add(location.strip().lower())
         if geo_detail.startswith("TOO_BROAD:"):
             suggestions = get_country_city_suggestions(location, activity)
             return {"resolved": False, "reason": geo_detail[len("TOO_BROAD:"):].strip(),
@@ -205,6 +227,7 @@ def _tool_evaluate_location(args: dict, state: dict, activity: str) -> dict:
 
     lat, lon, geo_detail = geocode_location(location)
     if lat is None:
+        state.setdefault("failed_locations", set()).add(location.strip().lower())
         if geo_detail.startswith("TOO_BROAD:"):
             suggestions = get_country_city_suggestions(location, activity)
             return {"resolved": False, "reason": geo_detail[len("TOO_BROAD:"):].strip(),
@@ -413,12 +436,27 @@ Rules:
 JSON:"""
 
 
-def _deterministic_fallback_action(state: dict, candidates: list[str]) -> dict:
+def _deterministic_fallback_action(state: dict, candidates: list[str], allow_expand: bool) -> dict:
     """Only used when the LLM is unavailable or its output can't be parsed —
     a safety net around the agent's planning, not the planning itself."""
+    failed = state.get("failed_locations", set())
     for c in candidates:
-        if _resolve_evaluated(state, c) is None:
+        if _resolve_evaluated(state, c) is None and c.strip().lower() not in failed:
             return {"thought": "(fallback — model unavailable)", "tool": "evaluate_location", "args": {"location": c}}
+    suggested = state.get("suggested_cities", [])
+    if not allow_expand and suggested and not state["evaluated"]:
+        # A candidate came back TOO_BROAD (e.g. a whole country) and the user
+        # hasn't said "anywhere"/answered a clarifying question yet — ask for
+        # a specific city instead of silently picking one for them.
+        cities = ", ".join(s.split(",")[0] for s in suggested[:4])
+        return {"thought": "(fallback — model unavailable, asking for a specific city)", "tool": "ask_user",
+                "args": {"question": f"That's a wide area — could you name a specific city? For example: {cities}. "
+                                      f"Or just say 'anywhere' and I'll pick the best one for you."}}
+    if len(state["evaluated"]) < MAX_LOCATIONS:
+        for c in suggested:
+            if _resolve_evaluated(state, c) is None and c.strip().lower() not in failed:
+                return {"thought": "(fallback — model unavailable, trying a suggested city)",
+                        "tool": "evaluate_location", "args": {"location": c}}
     if state["evaluated"]:
         best = max(state["evaluated"].values(), key=lambda o: o["scoring"]["score"])
         return {"thought": "(fallback — model unavailable)", "tool": "finish",
@@ -496,6 +534,16 @@ def run_agent(message: str, session_id: str) -> dict:
         candidate_hint += ("\nThe user explicitly asked about venues/hotels/places to stay — you must "
                             "call find_venues for at least one evaluated location before finishing.")
 
+    no_preference = any(kw in message.lower() for kw in _NO_PREFERENCE_KEYWORDS)
+    was_awaiting_clarification = session.get("awaiting_clarification", False)
+    session["awaiting_clarification"] = False
+    if no_preference or was_awaiting_clarification:
+        candidate_hint += ("\nThe user has no specific city preference (either they said so, or this "
+                            "message is their reply to a clarifying question you already asked) — do NOT "
+                            "call ask_user again this turn. If the location is a country/region, "
+                            "geocode/evaluate_location will hand you suggested_cities; pick 2-4 of those "
+                            "good candidates for the activity yourself, evaluate them, and recommend the best.")
+
     state = {
         "evaluated": {},
         "date_phrase": intent.get("date_phrase"),
@@ -513,7 +561,7 @@ def run_agent(message: str, session_id: str) -> dict:
 
         if decision is None or "tool" not in decision or decision.get("tool") not in TOOL_SPECS:
             consecutive_failures += 1
-            action = _deterministic_fallback_action(state, candidates)
+            action = _deterministic_fallback_action(state, candidates, no_preference or was_awaiting_clarification)
         else:
             consecutive_failures = 0
             action = decision
@@ -524,7 +572,7 @@ def run_agent(message: str, session_id: str) -> dict:
 
         if tool_name == "finish" and not state["evaluated"]:
             consecutive_failures += 1
-            action = _deterministic_fallback_action(state, candidates)
+            action = _deterministic_fallback_action(state, candidates, no_preference or was_awaiting_clarification)
             thought = action.get("thought") or thought
             tool_name = action.get("tool")
             args = action.get("args") or {}
@@ -534,6 +582,13 @@ def run_agent(message: str, session_id: str) -> dict:
             best_so_far = max(state["evaluated"].values(), key=lambda o: o["scoring"]["score"])
             thought = "Forcing a venue lookup before finishing — the user asked about venues/hotels."
             tool_name = "find_venues"
+            args = {"location": best_so_far["location_name"]}
+        elif tool_name == "finish" and _is_farming_activity(activity) and not any(
+            o.get("farming") for o in state["evaluated"].values()
+        ):
+            best_so_far = max(state["evaluated"].values(), key=lambda o: o["scoring"]["score"])
+            thought = "Forcing crop-specific farming analysis before finishing — this is a farming activity."
+            tool_name = "farming_analysis"
             args = {"location": best_so_far["location_name"]}
 
         steps.append({"step": f"Decide (step {i + 1})", "tool": "planner", "detail": thought})
@@ -547,6 +602,8 @@ def run_agent(message: str, session_id: str) -> dict:
 
         func = _TOOL_FUNCS.get(tool_name)
         observation = func(args, state, activity) if func else {"error": f"unknown tool '{tool_name}'"}
+        if observation.get("suggested_cities"):
+            state["suggested_cities"] = observation["suggested_cities"]
         scratchpad.append(f"Action {i + 1}: {tool_name}({args}) -> {json.dumps(observation)}")
         steps.append({"step": tool_name, "tool": tool_name, "detail": _summarize_observation(tool_name, observation)})
 
@@ -554,10 +611,17 @@ def run_agent(message: str, session_id: str) -> dict:
             break
 
     if ask_user_question:
+        session["last_intent"] = intent
+        session["awaiting_clarification"] = True
+        session["history"].append({"message": message, "reply": ask_user_question})
+        session["history"] = session["history"][-6:]
         return {"reply": ask_user_question, "intent": intent, "steps": steps, "options": []}
 
     if not state["evaluated"]:
         reply = "I gathered what I could but couldn't evaluate any location — try naming a specific city."
+        session["last_intent"] = intent
+        session["history"].append({"message": message, "reply": reply})
+        session["history"] = session["history"][-6:]
         return {"reply": reply, "intent": intent, "steps": steps, "options": []}
 
     options = sorted(state["evaluated"].values(), key=lambda o: o["scoring"]["score"], reverse=True)
