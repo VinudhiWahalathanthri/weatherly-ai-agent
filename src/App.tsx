@@ -8,11 +8,11 @@ function App() {
 
   return (
     <div className="h-screen relative">
-      <div className="fixed top-5 right-6 z-[60] flex items-center gap-1 bg-white/95 backdrop-blur-md rounded-full p-1 border border-gray-200 shadow-lg">
+      <div className="fixed top-5 right-6 z-[60] flex items-center gap-1 bg-white/90 backdrop-blur-md rounded-full p-1 border border-slate-200/80 shadow-lg shadow-blue-900/5">
         <button
           onClick={() => setMode("ai")}
-          className={`flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-full transition-colors ${
-            mode === "ai" ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-900"
+          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-full transition-all ${
+            mode === "ai" ? "bg-gradient-to-r from-slate-900 to-blue-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-900"
           }`}
         >
           <Sparkles className="w-3.5 h-3.5" />
@@ -20,8 +20,8 @@ function App() {
         </button>
         <button
           onClick={() => setMode("manual")}
-          className={`flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-full transition-colors ${
-            mode === "manual" ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-900"
+          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-full transition-all ${
+            mode === "manual" ? "bg-gradient-to-r from-slate-900 to-blue-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-900"
           }`}
         >
           <MapPin className="w-3.5 h-3.5" />
@@ -30,7 +30,7 @@ function App() {
       </div>
 
       {mode === "ai" ? (
-        <div className="h-screen bg-slate-50">
+        <div className="h-screen weatherly-atmosphere">
           <ChatPlanner />
         </div>
       ) : (
