@@ -8,10 +8,9 @@ import {
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import CurrentWeatherCard from "./CurrentWeatherCard";
-
-// ─────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────
+import RainyIcon from "@/assets/icons/rainy-4.svg";
+import ClearIcon from "@/assets/icons/day.svg";
+import WindIcon from "@/assets/icons/rainy-1.svg";
 
 type AgentStep = { step: string; tool: string; detail: string };
 
@@ -43,7 +42,7 @@ type AgentOption = {
   location: string;
   date: string;
   suitability_status: string;
-  temp: number;           // feels-like
+  temp: number;
   temp_actual: number;
   temp_max?: number;
   temp_min?: number;
@@ -51,14 +50,12 @@ type AgentOption = {
   wind: number;
   humidity: number;
   cloud_pct: number;
-  // Multi-dimensional scores
   score: number;
   comfort: number;
   safety: number;
   suitability: number;
   grade: string;
   profile_name: string;
-  // Explanation
   reasons: string[];
   risks: string[];
   positives: string[];
@@ -93,10 +90,6 @@ type ChatMessage =
   | { role: "assistant"; text: string; data?: AgentResponse }
   | { role: "error"; text: string };
 
-// ─────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────
-
 const SUGGESTIONS = [
   "What's the weather like in Colombo today?",
   "Is tomorrow good for a beach day in Galle?",
@@ -117,11 +110,25 @@ const gradeColor: Record<string, string> = {
   C: "text-amber-600",    D: "text-orange-600", F: "text-red-600",
 };
 
+function getWeatherIcon(o: AgentOption): { icon: string; description: string } {
+  if (o.wind > 35) return { icon: WindIcon, description: `High Wind (${Math.round(o.wind)} km/h)` };
+  if (o.rain > 5) return { icon: RainyIcon, description: `Heavy Rain (${o.rain.toFixed(1)} mm/day)` };
+  if (o.rain > 1.5) return { icon: RainyIcon, description: `Moderate Rain (${o.rain.toFixed(1)} mm/day)` };
+  if (o.temp_actual > 35) return { icon: ClearIcon, description: `Extreme Heat (${Math.round(o.temp_actual)}°C)` };
+  return { icon: ClearIcon, description: `Clear & Mild (${Math.round(o.temp_actual)}°C)` };
+}
+
+const gradeBanner: Record<string, { bg: string; text: string; emoji: string }> = {
+  "A+": { bg: "bg-gradient-to-r from-green-500 to-emerald-500", text: "Excellent for your plans", emoji: "☀️" },
+  A:    { bg: "bg-gradient-to-r from-green-500 to-emerald-500", text: "Excellent for your plans", emoji: "☀️" },
+  B:    { bg: "bg-gradient-to-r from-green-500 to-emerald-500", text: "Good conditions overall", emoji: "🙂" },
+  C:    { bg: "bg-gradient-to-r from-yellow-500 to-amber-500", text: "Proceed with caution", emoji: "⚠️" },
+  D:    { bg: "bg-gradient-to-r from-red-500 to-rose-500", text: "Not recommended", emoji: "❌" },
+  F:    { bg: "bg-gradient-to-r from-red-500 to-rose-500", text: "Not recommended", emoji: "❌" },
+};
+
 const API_BASE = "";
 
-// Web Speech API only ships as the vendor-prefixed webkitSpeechRecognition
-// outside Firefox, and there's no @types package for it — declare just the
-// shape this component actually uses instead of reaching for `any`.
 interface SpeechRecognitionResultLike {
   isFinal: boolean;
   0: { transcript: string };
@@ -151,16 +158,11 @@ const SpeechRecognitionCtor: SpeechRecognitionCtorType | null =
   (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionCtorType }).webkitSpeechRecognition ??
   null;
 
-// Voices a Sri Lankan farmer is likely to speak — extend as needed.
 const VOICE_LANGUAGES = [
   { code: "en-US", label: "EN" },
   { code: "si-LK", label: "SI" },
   { code: "ta-LK", label: "TA" },
 ];
-
-// ─────────────────────────────────────────────
-// Main component
-// ─────────────────────────────────────────────
 
 export default function ChatPlanner() {
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -183,7 +185,6 @@ export default function ChatPlanner() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
 
-  // Stop any in-flight recognition if the component unmounts mid-recording.
   useEffect(() => {
     return () => recognitionRef.current?.abort();
   }, []);
@@ -262,7 +263,6 @@ export default function ChatPlanner() {
 
   return (
     <div className="flex flex-col h-full max-w-3xl mx-auto w-full pt-16">
-      {/* Header */}
       <div className="flex items-center gap-2.5 px-4 pb-3 pt-2">
         <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center shrink-0">
           <Sparkles className="w-4 h-4 text-white" />
@@ -273,7 +273,6 @@ export default function ChatPlanner() {
         </div>
       </div>
 
-      {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.map((msg, i) => (
           <MessageBubble key={i} msg={msg} onSend={send} />
@@ -286,7 +285,6 @@ export default function ChatPlanner() {
         )}
       </div>
 
-      {/* Current weather + suggestion chips */}
       {messages.length <= 1 && (
         <div className="px-4 pb-1">
           <CurrentWeatherCard onAskAI={() => inputRef.current?.focus()} />
@@ -306,7 +304,6 @@ export default function ChatPlanner() {
         </div>
       )}
 
-      {/* Listening indicator */}
       {listening && (
         <div className="px-4 pb-1 flex items-center gap-1.5 text-xs text-red-500">
           <span className="relative flex h-2 w-2">
@@ -317,7 +314,6 @@ export default function ChatPlanner() {
         </div>
       )}
 
-      {/* Input */}
       <form
         onSubmit={(e) => { e.preventDefault(); send(input); }}
         className="flex items-center gap-2 p-4 border-t border-gray-200 bg-white"
@@ -378,10 +374,6 @@ export default function ChatPlanner() {
   );
 }
 
-// ─────────────────────────────────────────────
-// Message bubble
-// ─────────────────────────────────────────────
-
 function MessageBubble({ msg, onSend }: { msg: ChatMessage; onSend: (t: string) => void }) {
   if (msg.role === "user") {
     return (
@@ -418,10 +410,6 @@ function MessageBubble({ msg, onSend }: { msg: ChatMessage; onSend: (t: string) 
   );
 }
 
-// ─────────────────────────────────────────────
-// Agent trace (collapsible)
-// ─────────────────────────────────────────────
-
 function AgentTrace({ data }: { data: AgentResponse }) {
   const [open, setOpen] = useState(false);
   if (!data.steps?.length) return null;
@@ -456,10 +444,6 @@ function AgentTrace({ data }: { data: AgentResponse }) {
   );
 }
 
-// ─────────────────────────────────────────────
-// Options grid
-// ─────────────────────────────────────────────
-
 function OptionsGrid({ options, agentData, onSend }: { options: AgentOption[]; agentData: AgentResponse; onSend: (t: string) => void }) {
   return (
     <div className="space-y-3">
@@ -472,10 +456,6 @@ function OptionsGrid({ options, agentData, onSend }: { options: AgentOption[]; a
     </div>
   );
 }
-
-// ─────────────────────────────────────────────
-// Score gauge — small horizontal bar
-// ─────────────────────────────────────────────
 
 function ScoreBar({ label, value, icon, color }: { label: string; value: number; icon: React.ReactNode; color: string }) {
   return (
@@ -499,12 +479,10 @@ function ScoreBar({ label, value, icon, color }: { label: string; value: number;
   );
 }
 
-// ─────────────────────────────────────────────
-// Individual option card
-// ─────────────────────────────────────────────
-
 function OptionCard({ option: o, isTop, agentData }: { option: AgentOption; isTop: boolean; agentData?: AgentResponse }) {
-  const [showAnalysis, setShowAnalysis] = useState(isTop);
+  const [showAnalysis, setShowAnalysis] = useState(false);
+  const weather = getWeatherIcon(o);
+  const banner = gradeBanner[o.grade] ?? gradeBanner.C;
 
   return (
     <Card className={`bg-white border-gray-200 p-3 gap-0 shadow-sm ${isTop ? "ring-2 ring-blue-500/20 border-blue-200" : ""}`}>
@@ -519,7 +497,6 @@ function OptionCard({ option: o, isTop, agentData }: { option: AgentOption; isTo
           />
         </div>
       )}
-      {/* Location + grade */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5 text-xs text-gray-500 truncate">
           <MapPin className="w-3.5 h-3.5 shrink-0 text-blue-500" />
@@ -538,62 +515,61 @@ function OptionCard({ option: o, isTop, agentData }: { option: AgentOption; isTo
         </div>
       </div>
 
-      {/* Date + overall score */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-1.5 text-sm text-gray-700 font-medium">
-          <Calendar className="w-4 h-4 text-gray-400" />
-          {o.date}
-        </div>
-        <div className="text-right">
-          <span className="text-sm font-black text-blue-600">{o.score}</span>
-          <span className="text-[10px] text-gray-400">/100</span>
-        </div>
-      </div>
-
-      {/* Three-score bars */}
-      <div className="space-y-1.5 mb-3">
-        <ScoreBar label="Comfort" value={o.comfort} icon={<Heart className="w-3 h-3" />} color="text-pink-500" />
-        <ScoreBar label="Safety" value={o.safety} icon={<Shield className="w-3 h-3" />} color="text-blue-500" />
-        <ScoreBar label="Suitability" value={o.suitability} icon={<Star className="w-3 h-3" />} color="text-amber-500" />
-      </div>
-
-      {/* Weather stats grid */}
-      <div className="grid grid-cols-4 gap-1 text-[10px] mb-2">
-        {[
-          { label: "Feels", value: `${o.temp}°C`, icon: <Thermometer className="w-2.5 h-2.5" /> },
-          { label: "Rain", value: `${o.rain}mm`, icon: <Droplets className="w-2.5 h-2.5" /> },
-          { label: "Wind", value: `${o.wind}km/h`, icon: <Wind className="w-2.5 h-2.5" /> },
-          { label: "Humidity", value: `${o.humidity}%`, icon: <Cloud className="w-2.5 h-2.5" /> },
-        ].map(({ label, value, icon }) => (
-          <div key={label} className="bg-gray-50 border border-gray-100 rounded-lg px-1 py-1.5 text-center">
-            <div className="flex justify-center text-gray-400 mb-0.5">{icon}</div>
-            <div className="text-gray-400">{label}</div>
-            <div className="font-semibold text-gray-800 mt-0.5">{value}</div>
+      <div className={`${banner.bg} rounded-xl px-3 py-2.5 mb-3 flex items-center gap-3 text-white shadow-sm`}>
+        <img src={weather.icon} alt="" className="w-11 h-11 shrink-0 drop-shadow" />
+        <div className="min-w-0">
+          <div className="text-sm font-bold flex items-center gap-1.5">
+            <span>{banner.emoji}</span> {banner.text}
           </div>
-        ))}
+          <div className="text-[11px] text-white/90 flex items-center gap-1.5 mt-0.5">
+            <Calendar className="w-3 h-3 shrink-0" />
+            <span className="truncate">{o.date} · {weather.description}</span>
+          </div>
+        </div>
+        <div className="ml-auto text-right shrink-0">
+          <span className="text-base font-black">{o.score}</span>
+          <span className="text-[10px] text-white/80">/100</span>
+        </div>
       </div>
 
-      {/* Confidence note */}
-      {o.confidence_label && (
-        <div className="flex items-start gap-1 text-[10px] text-gray-400 mb-2">
-          <Info className="w-3 h-3 shrink-0 mt-0.5" />
-          <span>{o.confidence_label}</span>
-        </div>
-      )}
+      <button
+        onClick={() => setShowAnalysis((v) => !v)}
+        className="w-full flex items-center justify-between text-[11px] text-blue-600 hover:text-blue-800 font-medium mb-1 transition-colors"
+      >
+        <span className="flex items-center gap-1"><Wand2 className="w-3 h-3" />Scores &amp; full analysis</span>
+        {showAnalysis ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+      </button>
 
-      {/* Analysis section — toggle */}
-      {isTop && (
-        <button
-          onClick={() => setShowAnalysis((v) => !v)}
-          className="w-full flex items-center justify-between text-[11px] text-blue-600 hover:text-blue-800 font-medium mb-1 transition-colors"
-        >
-          <span className="flex items-center gap-1"><Wand2 className="w-3 h-3" />Full analysis</span>
-          {showAnalysis ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-        </button>
-      )}
-
-      {showAnalysis && isTop && (
+      {showAnalysis && (
         <div className="space-y-2 border-t border-gray-100 pt-2">
+          <div className="space-y-1.5">
+            <ScoreBar label="Comfort" value={o.comfort} icon={<Heart className="w-3 h-3" />} color="text-pink-500" />
+            <ScoreBar label="Safety" value={o.safety} icon={<Shield className="w-3 h-3" />} color="text-blue-500" />
+            <ScoreBar label="Suitability" value={o.suitability} icon={<Star className="w-3 h-3" />} color="text-amber-500" />
+          </div>
+
+          <div className="grid grid-cols-4 gap-1 text-[10px]">
+            {[
+              { label: "Feels", value: `${o.temp}°C`, icon: <Thermometer className="w-2.5 h-2.5" /> },
+              { label: "Rain", value: `${o.rain}mm`, icon: <Droplets className="w-2.5 h-2.5" /> },
+              { label: "Wind", value: `${o.wind}km/h`, icon: <Wind className="w-2.5 h-2.5" /> },
+              { label: "Humidity", value: `${o.humidity}%`, icon: <Cloud className="w-2.5 h-2.5" /> },
+            ].map(({ label, value, icon }) => (
+              <div key={label} className="bg-gray-50 border border-gray-100 rounded-lg px-1 py-1.5 text-center">
+                <div className="flex justify-center text-gray-400 mb-0.5">{icon}</div>
+                <div className="text-gray-400">{label}</div>
+                <div className="font-semibold text-gray-800 mt-0.5">{value}</div>
+              </div>
+            ))}
+          </div>
+
+          {o.confidence_label && (
+            <div className="flex items-start gap-1 text-[10px] text-gray-400">
+              <Info className="w-3 h-3 shrink-0 mt-0.5" />
+              <span>{o.confidence_label}</span>
+            </div>
+          )}
+
           {agentData?.explanation && (
             <p className="text-[11px] text-gray-700 leading-relaxed bg-blue-50 rounded-lg px-2.5 py-2 border border-blue-100">
               {agentData.explanation}
@@ -648,10 +624,6 @@ function OptionCard({ option: o, isTop, agentData }: { option: AgentOption; isTo
   );
 }
 
-// ─────────────────────────────────────────────
-// Report download + email actions
-// ─────────────────────────────────────────────
-
 function ReportActions({ options, agentData }: { options: AgentOption[]; agentData: AgentResponse }) {
   const [emailInput, setEmailInput] = useState("");
   const [showEmail, setShowEmail] = useState(false);
@@ -705,7 +677,6 @@ function ReportActions({ options, agentData }: { options: AgentOption[]; agentDa
       if (data.sent) {
         setEmailStatus(`Report sent to ${emailInput}`);
       } else {
-        // Backend returned the report for client download instead
         setEmailStatus("Email server not configured — downloading report instead.");
         if (data.report?.markdown) {
           const blob = new Blob([data.report.markdown], { type: "text/markdown;charset=utf-8" });
@@ -771,10 +742,6 @@ function ReportActions({ options, agentData }: { options: AgentOption[]; agentDa
   );
 }
 
-// ─────────────────────────────────────────────
-// Farming panel
-// ─────────────────────────────────────────────
-
 const farmingLabelStyles: Record<string, string> = {
   "Excellent":            "bg-green-50 text-green-700 border-green-200",
   "Good":                 "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -833,10 +800,6 @@ function FarmingPanel({ farming }: { farming: FarmingResult }) {
   );
 }
 
-// ─────────────────────────────────────────────
-// Online venue list (Google-Search-grounded recommendations)
-// ─────────────────────────────────────────────
-
 function OnlineVenueList({ venues }: { venues: OnlineVenueResult[] }) {
   const [open, setOpen] = useState(true);
 
@@ -877,10 +840,6 @@ function OnlineVenueList({ venues }: { venues: OnlineVenueResult[] }) {
     </div>
   );
 }
-
-// ─────────────────────────────────────────────
-// Venue list
-// ─────────────────────────────────────────────
 
 const VENUE_TYPE_ICON: Record<string, React.ReactNode> = {
   Hotel:            <Hotel className="w-3.5 h-3.5 shrink-0 text-indigo-500" />,

@@ -12,23 +12,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
-# ─────────────────────────────────────────────────────────────────
-# Crop profiles — ideal ranges and hard limits for common crops
-# ─────────────────────────────────────────────────────────────────
-
 @dataclass
 class CropProfile:
     name: str
-    # Temperature: (min_ok, ideal_low, ideal_high, max_ok)
     temp_range: tuple[float, float, float, float]
-    # Monthly rainfall needed (mm)
     rain_min_monthly: float
     rain_max_monthly: float
-    # Max wind speed acceptable (km/h) during flowering/harvest
     wind_max: float
-    # Humidity range (%)
     humidity_ideal: tuple[float, float]
-    # Activities this crop profile applies to
     keywords: list[str]
 
     def temp_score(self, temp_c: float) -> int:
@@ -44,9 +35,9 @@ class CropProfile:
 
     def rain_score(self, rain_mm_monthly: float) -> int:
         if rain_mm_monthly < self.rain_min_monthly * 0.4:
-            return 0  # severe drought
+            return 0
         if rain_mm_monthly > self.rain_max_monthly * 2.5:
-            return 0  # flooding risk
+            return 0
         if self.rain_min_monthly <= rain_mm_monthly <= self.rain_max_monthly:
             return 100
         if rain_mm_monthly < self.rain_min_monthly:
@@ -139,10 +130,6 @@ def _match_crop(activity: str) -> CropProfile | None:
     return None
 
 
-# ─────────────────────────────────────────────────────────────────
-# Risk detection
-# ─────────────────────────────────────────────────────────────────
-
 def detect_risks(temp_c: float, rain_mm: float, wind_kmh: float, humidity_pct: float) -> list[str]:
     """Return plain-English risk alerts for the given conditions."""
     risks: list[str] = []
@@ -177,10 +164,6 @@ def detect_opportunities(temp_c: float, rain_mm: float, wind_kmh: float) -> list
     return opps
 
 
-# ─────────────────────────────────────────────────────────────────
-# Main entry point
-# ─────────────────────────────────────────────────────────────────
-
 def farming_analysis(
     activity: str,
     temp_c: float,
@@ -195,8 +178,7 @@ def farming_analysis(
     """
     crop = _match_crop(activity)
     if crop is None:
-        # Generic farming fallback
-        crop = CROP_PROFILES[4]  # Vegetables / general
+        crop = CROP_PROFILES[4]
 
     t_score = crop.temp_score(temp_c)
     r_score = crop.rain_score(rain_mm)

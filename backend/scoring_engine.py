@@ -16,36 +16,24 @@ from dataclasses import dataclass, field
 import math
 
 
-# ─────────────────────────────────────────────────────────────────
-# Activity Profiles
-# ─────────────────────────────────────────────────────────────────
-
 @dataclass
 class ActivityProfile:
     name: str
-    # Ideal temperature window (feels_like °C)
     temp_ideal: tuple[float, float]
     temp_acceptable: tuple[float, float]
-    # Max acceptable rain (mm/day)
-    rain_ok: float          # below → no penalty
-    rain_caution: float     # above → caution
-    rain_unsafe: float      # above → unsafe
-    # Max acceptable wind (km/h)
+    rain_ok: float
+    rain_caution: float
+    rain_unsafe: float
     wind_ok: float
     wind_caution: float
     wind_unsafe: float
-    # Ideal humidity range (%)
     humidity_ideal: tuple[float, float]
-    # Cloud cover preference (0=loves sun, 1=doesn't care, 2=prefers overcast)
     cloud_preference: float
-    # Score weights: how much each factor matters (must sum to ~1.0)
     comfort_weight: float = 0.35
     safety_weight: float = 0.30
     suitability_weight: float = 0.35
-    # Activity-specific preparation tips
     tips: list[str] = field(default_factory=list)
-    # Minimum party size consideration
-    min_backup_for_size: int = 50  # suggest backup plan above this
+    min_backup_for_size: int = 50
 
 
 PROFILES: dict[str, ActivityProfile] = {
@@ -161,7 +149,7 @@ PROFILES: dict[str, ActivityProfile] = {
         rain_ok=0.5, rain_caution=2.0, rain_unsafe=6.0,
         wind_ok=20, wind_caution=35, wind_unsafe=50,
         humidity_ideal=(40, 75),
-        cloud_preference=1.2,  # overcast = ideal diffused light
+        cloud_preference=1.2,
         tips=["Golden hour (sunrise/sunset) best for portraits", "Overcast = perfect diffused light for photography", "Rain can create beautiful reflections"],
     ),
     "picnic": ActivityProfile(
@@ -217,19 +205,13 @@ PROFILES: dict[str, ActivityProfile] = {
 
 def _get_profile(activity: str) -> ActivityProfile:
     lower = activity.lower().strip()
-    # Direct match
     if lower in PROFILES:
         return PROFILES[lower]
-    # Substring match
     for key, profile in PROFILES.items():
         if key != "_default" and key in lower:
             return profile
     return PROFILES["_default"]
 
-
-# ─────────────────────────────────────────────────────────────────
-# Scoring helpers
-# ─────────────────────────────────────────────────────────────────
 
 def _linear_score(value: float, ideal_lo: float, ideal_hi: float,
                    ok_lo: float, ok_hi: float) -> float:
@@ -264,17 +246,11 @@ def _humidity_score(rh: float, ideal_lo: float, ideal_hi: float) -> float:
 def _cloud_score(cloud_pct: float, preference: float) -> float:
     """preference: 0=loves clear, 1=neutral, 2=prefers overcast."""
     if preference <= 0.5:
-        # Prefers clear — penalize cloud
         return max(0.0, 100.0 - cloud_pct * (0.5 + (0.5 - preference)))
     if preference >= 1.5:
-        # Prefers overcast — reward cloud
         return min(100.0, cloud_pct * 1.2)
-    return 85.0  # neutral — slight bonus for partial cloud
+    return 85.0
 
-
-# ─────────────────────────────────────────────────────────────────
-# Risk detection
-# ─────────────────────────────────────────────────────────────────
 
 def detect_weather_risks(pred: dict, profile: ActivityProfile) -> list[str]:
     risks = []
@@ -328,10 +304,6 @@ def detect_positives(pred: dict, profile: ActivityProfile) -> list[str]:
     return positives
 
 
-# ─────────────────────────────────────────────────────────────────
-# Main scoring function
-# ─────────────────────────────────────────────────────────────────
-
 def compute_scores(pred: dict, activity: str) -> dict:
     """
     Returns:
@@ -352,7 +324,6 @@ def compute_scores(pred: dict, activity: str) -> dict:
     rh   = pred.get("RH2M", 70)
     cloud = pred.get("CLOUD_AMT", pred.get("CloudPct", 50))
 
-    # ── Comfort ────────────────────────────────────────────────
     temp_s  = _linear_score(temp, *profile.temp_ideal, *profile.temp_acceptable)
     rain_s  = _rain_score(rain, profile.rain_ok, profile.rain_caution, profile.rain_unsafe)
     wind_s  = _wind_score(wind, profile.wind_ok, profile.wind_caution, profile.wind_unsafe)
@@ -360,30 +331,32 @@ def compute_scores(pred: dict, activity: str) -> dict:
     cloud_s = _cloud_score(cloud, profile.cloud_preference)
     comfort = int(0.35 * temp_s + 0.25 * rain_s + 0.20 * wind_s + 0.12 * humid_s + 0.08 * cloud_s)
 
-    # ── Safety ──────────────────────────────────────────────────
-    # Safety is stricter — thresholds are at the unsafe level
     s_temp = 100.0 if temp <= 36 else max(0.0, 100.0 - (temp - 36) * 15)
     s_rain = 100.0 if rain < profile.rain_caution else max(0.0, 100.0 - (rain - profile.rain_caution) * 8)
     s_wind = 100.0 if wind < profile.wind_caution else max(0.0, 100.0 - (wind - profile.wind_caution) * 4)
-    # Extreme cold
     if temp <= 0:
         s_temp = max(0.0, s_temp - 40)
     safety = int(0.35 * s_temp + 0.35 * s_rain + 0.30 * s_wind)
 
-    # ── Suitability ──────────────────────────────────────────────
-    # Uses the ML classifier result as a prior, then adjusts
     ml_status = pred.get("suitability_status", "Caution")
     ml_base = {"Suitable": 80, "Suitable (Fallback)": 75, "Caution": 50,
                 "Caution (ML Error)": 50, "Unsuitable": 20, "Unsuitable (High Risk)": 10}.get(ml_status, 50)
 
-    # Activity-specific adjustment
     activity_adj = 0.0
     activity_adj += (temp_s - 50) * 0.15
     activity_adj += (rain_s - 50) * 0.20
     activity_adj += (wind_s - 50) * 0.10
     suitability = int(max(0, min(100, ml_base + activity_adj * 0.5)))
 
-    # ── Overall ──────────────────────────────────────────────────
+    if rain >= profile.rain_unsafe or wind >= profile.wind_unsafe:
+        comfort = min(comfort, 30)
+        safety = min(safety, 30)
+        suitability = min(suitability, 30)
+    elif rain >= profile.rain_caution or wind >= profile.wind_caution:
+        comfort = min(comfort, 60)
+        safety = min(safety, 65)
+        suitability = min(suitability, 60)
+
     overall = int(
         profile.comfort_weight * comfort
         + profile.safety_weight * safety
@@ -391,7 +364,6 @@ def compute_scores(pred: dict, activity: str) -> dict:
     )
     overall = max(0, min(100, overall))
 
-    # ── Grade ────────────────────────────────────────────────────
     if overall >= 90: grade = "A+"
     elif overall >= 80: grade = "A"
     elif overall >= 70: grade = "B"
@@ -415,10 +387,6 @@ def compute_scores(pred: dict, activity: str) -> dict:
     }
 
 
-# ─────────────────────────────────────────────────────────────────
-# Natural-language explanation generator
-# ─────────────────────────────────────────────────────────────────
-
 def explain_decision(
     scores: dict,
     pred: dict,
@@ -436,8 +404,12 @@ def explain_decision(
     overall = scores.get("overall", scores.get("score", 50))
     grade = scores.get("grade", "C")
 
-    # Opening verdict
-    if overall >= 80:
+    profile = _get_profile(activity)
+    severe_hazard = rain >= profile.rain_unsafe or wind >= profile.wind_unsafe
+
+    if severe_hazard:
+        verdict = f"{location} on {date} is not recommended for {activity} due to hazardous conditions"
+    elif overall >= 80:
         verdict = f"{location} on {date} is an excellent choice for {activity}"
     elif overall >= 65:
         verdict = f"{location} on {date} is a good option for {activity}"
@@ -446,27 +418,21 @@ def explain_decision(
     else:
         verdict = f"{location} on {date} presents significant challenges for {activity}"
 
-    # Why
     why_parts = []
     if scores["positives"]:
         why_parts.append(scores["positives"][0].lower())
     if scores["comfort"] >= 75:
         why_parts.append(f"conditions feel comfortable ({temp:.0f}°C, {rh:.0f}% humidity)")
-    elif scores["comfort"] < 50:
-        why_parts.append(f"conditions may be uncomfortable ({temp:.0f}°C feels-like)")
 
     why = f"The main strengths are {', and '.join(why_parts[:2])}." if why_parts else ""
 
-    # Risks
     risk_str = ""
     if scores["risks"]:
         top_risk = scores["risks"][0]
         risk_str = f" The key concern is {top_risk.lower()}."
 
-    # Confidence note
     conf_note = f" Note: {confidence_label}." if confidence_label else ""
 
-    # Tip
     tips = scores.get("tips", [])
     tip_str = f" Tip: {tips[0]}." if tips else ""
 

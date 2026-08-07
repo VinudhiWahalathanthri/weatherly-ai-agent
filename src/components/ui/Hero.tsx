@@ -5,7 +5,6 @@ import { motion, useMotionValue, useTransform } from "framer-motion";
 const Hero: React.FC = ({}) => {
   return (
     <>
-      {/* Hero Section */}
       <section
         id="home"
         className="relative w-full h-screen flex items-center justify-center"

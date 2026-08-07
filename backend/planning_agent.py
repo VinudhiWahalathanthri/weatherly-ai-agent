@@ -32,17 +32,11 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "qwen3.5"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-# Nominatim's usage policy caps public-instance traffic at 1 request/second.
-# https://operations.osmfoundation.org/policies/nominatim/
 _NOMINATIM_MIN_INTERVAL = 1.05
 _last_nominatim_call = 0.0
 
-# place_rank <= 8 means the result is a country or large administrative division —
-# far too coarse to mean anything for weather-based event planning.
 _TOO_BROAD_RANK = 8
 
-# When a user names a country, suggest its primary planning city so the reply
-# is helpful rather than a dead end.
 COUNTRY_CITY_HINTS: dict[str, str] = {
     "india": "New Delhi, India",
     "sri lanka": "Colombo, Sri Lanka",
@@ -75,8 +69,6 @@ WORD_TO_NUM: dict[str, int] = {
     "eleven": 11, "twelve": 12,
 }
 
-# When a user says "beach vacation in India", the agent picks the best coastal
-# cities to compare rather than just failing with "too broad".
 COUNTRY_ACTIVITY_CITIES: dict[str, dict[str, list[str]]] = {
     "india": {
         "beach":   ["Goa, India", "Varkala, India", "Pondicherry, India", "Kovalam, India"],
@@ -203,7 +195,6 @@ ACTIVITY_KEYWORDS = {
     "outdoor party": ["party", "birthday"],
     "travel": ["travel", "trip", "vacation", "holiday", "visit"],
     "photography session": ["photoshoot", "photography"],
-    # Farming activities
     "rice farming": ["rice", "paddy"],
     "wheat farming": ["wheat"],
     "vegetable farming": ["vegetable", "vegetables"],
@@ -262,8 +253,6 @@ def _call_gemini_json(prompt: str) -> dict | None:
         resp = client.models.generate_content(
             model=GEMINI_MODEL,
             contents=prompt,
-            # response_mime_type=json makes Gemini return a raw JSON string
-            # directly — no regex-extraction-from-prose needed, unlike Ollama.
             config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.2),
         )
         text = (resp.text or "").strip()
@@ -336,9 +325,6 @@ def search_venues_online(location: str, activity: str) -> list[dict] | None:
         resp = client.models.generate_content(
             model=GEMINI_MODEL,
             contents=prompt,
-            # Grounding tools can't be combined with response_mime_type=json, so we
-            # ask for JSON in plain text and extract it the same way the Ollama
-            # fallback does elsewhere in this module.
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],
                 temperature=0.3,
@@ -370,9 +356,6 @@ def _call_ollama_json(prompt: str, timeout: int) -> dict | None:
     try:
         resp = requests.post(
             OLLAMA_URL,
-            # think=False skips qwen3.5's chain-of-thought pass — with it enabled a
-            # single call took ~170s (831 tokens of reasoning) and blew any
-            # reasonable timeout, silently forcing callers into their fallback path.
             json={"model": model, "prompt": prompt, "stream": False, "think": False},
             timeout=timeout,
         )
@@ -437,14 +420,12 @@ def _extract_intent_rules(message: str) -> dict:
     """Regex/keyword fallback intent extractor — no external service required."""
     lower = message.lower()
 
-    # Activity
     activity = None
     for label, keywords in ACTIVITY_KEYWORDS.items():
         if any(kw in lower for kw in keywords):
             activity = label
             break
 
-    # Date phrase: capture common relative-date expressions
     word_nums = "|".join(WORD_TO_NUM.keys())
     date_patterns = [
         r"next weekend", r"this weekend", r"next month", r"this month",
@@ -462,10 +443,6 @@ def _extract_intent_rules(message: str) -> dict:
             date_phrase = m.group(0)
             break
 
-    # Location extraction — ordered from most to least reliable.
-    # Key principle: "in <city>" is the most reliable signal; "for" is NEVER used
-    # because it almost always precedes an activity ("for a cricket tournament"),
-    # not a location. Each pattern caps at ~25 chars to avoid grabbing full phrases.
     location = None
 
     _COMMON_WORDS = {
@@ -475,9 +452,6 @@ def _extract_intent_rules(message: str) -> dict:
         "compare", "find", "get", "show", "tell", "give", "help", "please",
     }
 
-    # Used only by the last-resort location fallback (step 6 below): a much wider
-    # net of filler/question/domain words to strip out so whatever remains is
-    # (hopefully) just the place name, however plainly it was typed.
     _FILLER_WORDS = _COMMON_WORDS | {
         "i", "we", "you", "it", "in", "at", "on", "to", "of", "or", "and", "with",
         "no", "not", "do", "does", "doing", "did", "have", "having", "had", "be",
@@ -492,15 +466,12 @@ def _extract_intent_rules(message: str) -> dict:
         "outside", "out", "day", "days", "week", "weeks",
         "month", "months", "weekend", "tomorrow", "today", "now", "from", "then",
         "please", "thanks", "thank",
-        # Contractions with the apostrophe already stripped by lower() — "what's"
-        # arrives here as "whats", etc.
         "whats", "hows", "wheres", "whens", "whos", "thats", "theres", "im",
         "ive", "youre", "youve", "dont", "doesnt", "didnt", "isnt", "arent",
         "wasnt", "werent", "wont", "cant", "couldnt", "wouldnt", "shouldnt",
         "hasnt", "havent",
     }
 
-    # 1. Explicit comparison: "Compare X vs Y", "X vs Y", "X or Y for ..."
     cmp_match = re.search(
         r"(?i)(?:compare\s+)?([A-Za-z][A-Za-z\s]{1,20}?)\s+(?:vs\.?|versus|or)\s+([A-Za-z][A-Za-z\s]{1,20}?)(?=\s+(?:for|next|this|in|on)\b|[.?!,]|$)",
         message,
@@ -512,8 +483,6 @@ def _extract_intent_rules(message: str) -> dict:
             location = f"{a} vs {b}"
 
     if not location:
-        # 2. "in <City>" — most reliable: "cricket tournament in Colombo next month"
-        #    Uses word boundary + lookahead so it stops at the city name, not the whole rest of sentence.
         in_match = re.search(
             r"(?i)\bin\s+([A-Za-z][A-Za-z\s]{1,24}?)(?=\s*(?:next|this|tomorrow|today|on\s+\d|in\s+\d|instead|,|\.|\?|!|$))",
             message,
@@ -524,7 +493,6 @@ def _extract_intent_rules(message: str) -> dict:
                 location = candidate
 
     if not location:
-        # 3. Other prepositions (but NOT "for"): "to Kandy", "at Kandy", "near Kandy"
         prep_match = re.search(
             r"(?i)\b(?:to|at|near|around|about)\s+([A-Za-z][A-Za-z\s]{1,24}?)(?=\s*(?:next|this|tomorrow|today|on\s+\d|in\s+\d|instead|,|\.|\?|!|$))",
             message,
@@ -535,14 +503,11 @@ def _extract_intent_rules(message: str) -> dict:
                 location = candidate
 
     if not location:
-        # 4. "City, Country" bare form: "Goa, India"
         city_country = re.search(r"([A-Z][A-Za-z]{2,}),\s*([A-Z][A-Za-z\s]{2,20}?)(?=\s+(?:next|this|for)|[.?!,]|$)", message)
         if city_country:
             location = f"{city_country.group(1)}, {city_country.group(2).strip()}"
 
     if not location:
-        # 5. Title-case proper noun that immediately precedes a date word
-        #    e.g. "...cricket tournament Colombo next month"
         tail_match = re.search(
             r"\b([A-Z][A-Za-z]{2,}(?:\s+[A-Z][A-Za-z]{2,})?)\s+(?:next|this|in|on)\b",
             message,
@@ -553,10 +518,6 @@ def _extract_intent_rules(message: str) -> dict:
                 location = candidate
 
     if not location:
-        # 6. Last resort — strip out everything already recognized (the activity
-        # keyword, the date phrase, filler/question words) and treat whatever's
-        # left as the place name. Covers phrasing with no preposition, comma, or
-        # capitalization to anchor on, e.g. a bare "homagama sri lanka".
         remainder = lower
         if date_phrase:
             remainder = remainder.replace(date_phrase, " ")
@@ -567,15 +528,9 @@ def _extract_intent_rules(message: str) -> dict:
         remainder = re.sub(rf"\b(?:{'|'.join(_FILLER_WORDS)})\b", " ", remainder)
         remainder = re.sub(r"[^\w\s]", " ", remainder)
         remainder = re.sub(r"\s+", " ", remainder).strip()
-        # Real bare place names are short ("Kandy", "Homagama Sri Lanka"). A long
-        # leftover means the message genuinely has no location — e.g. "spend the
-        # day with my friends outdoors" reduces to "spend friends outdoors nice
-        # date time proper", which is noise, not a place. Guessing on it just
-        # sends a nonsense query to the geocoder instead of asking the user.
         if remainder and 3 <= len(remainder) and len(remainder.split()) <= 4:
             location = remainder.title()
 
-    # Event size
     size_match = re.search(r"(\d{1,5})\s*(?:people|guests|attendees)", lower)
     event_size = size_match.group(1) if size_match else None
 
@@ -590,20 +545,12 @@ def _extract_intent_rules(message: str) -> dict:
 def extract_intent(message: str) -> dict:
     intent = _extract_intent_llm(message)
     if intent is None:
-        # No LLM available at all — the regex-based chitchat fast path in
-        # agent.py already caught the obvious greetings before this runs, so
-        # assume planning intent here and let the agent's own ask_user tool
-        # handle anything that turns out to be too vague to act on.
         intent = _extract_intent_rules(message)
         intent["is_planning_request"] = True
         intent["casual_reply"] = None
     elif intent.get("is_planning_request") is False:
-        # LLM judged this as small talk — don't bother backfilling
-        # location/date/activity from the rule-based extractor, there's
-        # nothing to plan.
         pass
     else:
-        # Backfill anything the LLM missed using the rule-based extractor
         fallback = _extract_intent_rules(message)
         for key in ("location", "date_phrase", "activity", "event_size"):
             if not intent.get(key):
@@ -640,8 +587,6 @@ def geocode_location(name: str | None) -> tuple[float, float, str] | tuple[None,
             return None, None, f"no results found for '{name}'"
         top = results[0]
 
-        # Reject country/large-region results — their centroid coordinates are
-        # useless for weather planning (e.g. "India" → middle of Madhya Pradesh).
         place_rank = int(top.get("place_rank", 0))
         if place_rank <= _TOO_BROAD_RANK:
             hint_city = COUNTRY_CITY_HINTS.get(name.strip().lower(), "")
@@ -704,7 +649,6 @@ def resolve_date_phrase(phrase: str | None) -> tuple[datetime, datetime]:
             d = _next_weekday(now, idx)
             return d, d
 
-    # "X months/weeks/days from now" or "in X months/weeks/days" (digit or word)
     m = re.search(r"(\w+)\s+months?\s+from\s+now", phrase)
     if m:
         count = _parse_count(m.group(1))
@@ -762,7 +706,6 @@ def resolve_date_phrase(phrase: str | None) -> tuple[datetime, datetime]:
         last_day = calendar.monthrange(now.year, now.month)[1]
         return now, now.replace(day=min(now.day + 6, last_day))
 
-    # Unrecognized phrase — default to a representative week next month
     target = _add_months(now, 1)
     return target, target + timedelta(days=6)
 
@@ -792,8 +735,6 @@ def resolve_scan_range(phrase: str | None) -> tuple[datetime, datetime]:
         last_day = calendar.monthrange(target.year, target.month)[1]
         return now, target.replace(day=last_day)
 
-    # For narrower phrases (weekend, specific weekday, "in N days") a scan
-    # isn't meaningful — just use the normal resolver's range.
     return resolve_date_phrase(phrase)
 
 

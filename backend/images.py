@@ -22,8 +22,6 @@ def get_place_image(place_name: str) -> str | None:
     Cached in-process so popular destinations are only looked up once."""
     if not place_name:
         return None
-    # Nominatim's display_name is typically "City, District, Country" — the
-    # full string rarely matches a Wikipedia page title, so use just the city.
     title = place_name.split(",")[0].strip()
     if not title:
         return None

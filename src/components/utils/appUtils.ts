@@ -1,6 +1,5 @@
 import html2canvas from "html2canvas-oklch";
 
-// ---------- Types ----------
 export type Risk = {
   type: string;
   iconClass?: string;
@@ -23,7 +22,6 @@ export type LocationMarkerProps = {
   onLocationSelect: (lat: number, lng: number) => void;
 };
 
-// ---------- Constants ----------
 export const ACTIVITY_CATEGORIES: Record<string, string[]> = {
   "Outdoor Events": [
     "Outdoor Ceremony/Reception",
@@ -77,7 +75,6 @@ export const climateData: ClimateData[] = [
   { month: "Jun", temp: 35, rain: 90 },
 ];
 
-// ---------- Utility Functions ----------
 export const getWeatherGradient = (condition?: string): string => {
   const baseBlue = "#1e3a5f";
   const topColor = (() => {
@@ -172,7 +169,6 @@ export const minDate = getTodayDate();
 export const maxDate = getMaxDate();
 
 export const handleExportPng = (location) => {
-  // 1. Get the DOM element by ID
   const input = document.getElementById("weather");
 
   if (!input) {
@@ -183,21 +179,15 @@ export const handleExportPng = (location) => {
     return;
   }
 
-  // 2. Convert HTML element to canvas using html2canvas
   html2canvas(input, {
-    // Use CORS for external images (like your weather icons)
     useCORS: true,
-    // Use a scale > 1 for better resolution/quality (e.g., 2x or 3x)
     scale: 2,
-    // Optional: Crop any scrolling overflow if your results section is scrollable
     windowWidth: input.scrollWidth,
     windowHeight: input.scrollHeight,
   })
     .then((canvas) => {
-      // 3. Convert the canvas to a data URL (PNG format)
       const imgData = canvas.toDataURL("image/png");
 
-      // 4. Create and trigger the download
       const link = document.createElement("a");
       link.href = imgData;
 
@@ -210,7 +200,6 @@ export const handleExportPng = (location) => {
       document.body.appendChild(link);
       link.click();
 
-      // 5. Cleanup
       document.body.removeChild(link);
       console.log("PNG download initiated.");
     })
@@ -233,29 +222,21 @@ export const handleDownloadJSON = (data, location) => {
     return;
   }
 
-  // Convert the JavaScript object into a formatted JSON string
-  // null, 2 formats the JSON nicely with a 2-space indentation
   const jsonString = JSON.stringify(data, null, 2);
 
-  // Create a Blob containing the JSON data
   const blob = new Blob([jsonString], { type: "application/json" });
   const url = URL.createObjectURL(blob);
 
-  // Create a temporary link element for the download
   const link = document.createElement("a");
   link.href = url;
 
-  // Set the filename using the location and current date
   const filename = `weather_data_${location.replace(/[^a-z0-9]/gi, "_")}.json`;
   link.setAttribute("download", filename);
 
-  // Simulate a click on the link to trigger the download
   document.body.appendChild(link);
   link.click();
 
-  // Clean up
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
   console.log("JSON download initiated.");
 };
-

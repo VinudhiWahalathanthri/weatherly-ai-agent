@@ -4,14 +4,10 @@ import ChatPlanner from "./components/ChatPlanner";
 import { Sparkles, MapPin } from "lucide-react";
 
 function App() {
-  // AI chat is the default landing experience — it's the low-friction path for
-  // everyday day/trip planning. Manual mode is repositioned as "Advanced Search"
-  // for people who want to pick exact dates/locations on a map themselves.
   const [mode, setMode] = useState<"manual" | "ai">("ai");
 
   return (
     <div className="h-screen relative">
-      {/* Floating mode switcher — jumps between the AI Planner and Advanced Search */}
       <div className="fixed top-5 right-6 z-[60] flex items-center gap-1 bg-white/95 backdrop-blur-md rounded-full p-1 border border-gray-200 shadow-lg">
         <button
           onClick={() => setMode("ai")}

@@ -38,7 +38,6 @@ def generate_report(
     winner = options[0]
     alternatives = options[1:]
 
-    # ── Summary block ────────────────────────────────────────────
     summary_lines = [
         f"Activity: {activity}",
         f"Recommendation: {winner['location']} on {winner['date']}",
@@ -49,7 +48,6 @@ def generate_report(
         f"Confidence: {winner.get('confidence_label', 'Historical climate estimate')}",
     ]
 
-    # ── Build Markdown ───────────────────────────────────────────
     md_lines = [
         f"# Weather Planning Report",
         f"**Generated:** {now_str}",
@@ -168,24 +166,16 @@ def report_to_html(report: dict) -> str:
     import re
     md = report.get("markdown", "No report available.")
 
-    # Very basic Markdown → HTML (avoids a markdown library dependency)
     html = md
-    # Headers
     html = re.sub(r"^# (.+)$", r"<h1>\1</h1>", html, flags=re.M)
     html = re.sub(r"^## (.+)$", r"<h2>\1</h2>", html, flags=re.M)
     html = re.sub(r"^### (.+)$", r"<h3>\1</h3>", html, flags=re.M)
-    # Bold
     html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
-    # Lists
     html = re.sub(r"^- (.+)$", r"<li>\1</li>", html, flags=re.M)
     html = re.sub(r"(<li>.*</li>)", r"<ul>\1</ul>", html, flags=re.S)
-    # Links
     html = re.sub(r"\[(.+?)\]\((.+?)\)", r'<a href="\2">\1</a>', html)
-    # Table rows
     html = re.sub(r"^\|(.+)\|$", lambda m: "<tr>" + "".join(f"<td>{c.strip()}</td>" for c in m.group(1).split("|")) + "</tr>", html, flags=re.M)
-    # Horizontal rule
     html = html.replace("---", "<hr>")
-    # Newlines
     html = html.replace("\n\n", "</p><p>")
 
     return f"""<!DOCTYPE html>

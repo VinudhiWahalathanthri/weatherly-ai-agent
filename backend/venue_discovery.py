@@ -11,19 +11,12 @@ so the user gets actionable links alongside the weather recommendation.
 import math
 import requests
 
-# The public Overpass instance (overpass-api.de) is the default everyone hits,
-# so it's frequently overloaded/slow — we saw live 504s during testing. These
-# are all free, keyless, community-run mirrors of the same OSM data; trying
-# them in order turns "one flaky server" into "all three would have to be
-# down at once" for basically no extra cost.
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.openstreetmap.fr/api/interpreter",
 ]
 
-# OSM tags relevant to each activity type. The agent matches the activity
-# string against these keys (substring match, lowercase).
 ACTIVITY_VENUE_TAGS: dict[str, list[tuple[str, str]]] = {
     "wedding":        [("amenity", "events_venue"), ("tourism", "hotel"), ("leisure", "park")],
     "ceremony":       [("amenity", "events_venue"), ("tourism", "hotel"), ("leisure", "park")],
@@ -41,7 +34,6 @@ ACTIVITY_VENUE_TAGS: dict[str, list[tuple[str, str]]] = {
     "vacation":       [("tourism", "hotel"), ("tourism", "resort"), ("tourism", "attraction")],
     "surfing":        [("leisure", "beach_resort"), ("leisure", "park")],
     "swimming":       [("leisure", "swimming_pool"), ("leisure", "beach_resort")],
-    # Farming / agricultural activities
     "farming":        [("shop", "agrarian"), ("shop", "farm"), ("amenity", "marketplace")],
     "harvest":        [("shop", "agrarian"), ("amenity", "marketplace"), ("landuse", "farmyard")],
     "planting":       [("shop", "agrarian"), ("shop", "farm"), ("landuse", "farmyard")],
@@ -51,15 +43,12 @@ ACTIVITY_VENUE_TAGS: dict[str, list[tuple[str, str]]] = {
     "livestock":      [("shop", "agrarian"), ("landuse", "farmyard"), ("shop", "farm")],
     "rice":           [("shop", "agrarian"), ("amenity", "marketplace"), ("landuse", "farmyard")],
     "wheat":          [("shop", "agrarian"), ("amenity", "marketplace"), ("shop", "farm")],
-    # Outdoor events (enhanced)
     "outdoor":        [("amenity", "events_venue"), ("leisure", "park"), ("tourism", "hotel")],
     "conference":     [("amenity", "events_venue"), ("tourism", "hotel"), ("amenity", "community_centre")],
     "concert":        [("amenity", "events_venue"), ("leisure", "stadium"), ("tourism", "hotel")],
     "_default":       [("amenity", "events_venue"), ("leisure", "park"), ("tourism", "hotel")],
 }
 
-# Always append these to every result set so the user always gets
-# somewhere to stay, regardless of activity.
 HOTEL_TAGS: list[tuple[str, str]] = [
     ("tourism", "hotel"),
     ("tourism", "resort"),
@@ -71,7 +60,6 @@ def _match_tags(activity: str) -> list[tuple[str, str]]:
     lower = activity.lower()
     for key, tags in ACTIVITY_VENUE_TAGS.items():
         if key in lower:
-            # Merge activity-specific tags with hotel tags, preserving order.
             combined = list(tags)
             for ht in HOTEL_TAGS:
                 if ht not in combined:
@@ -81,11 +69,6 @@ def _match_tags(activity: str) -> list[tuple[str, str]]:
 
 
 def _overpass_query(lat: float, lon: float, tags: list[tuple[str, str]], radius_m: int) -> str:
-    # "nwr" (node/way/relation combined) instead of just "node" — a lot of real
-    # venues (hotel buildings, parks, sports grounds) are mapped as ways or
-    # relations with no standalone point, so a node-only query silently missed
-    # them. "out center" gives ways/relations a usable lat/lon (their centroid)
-    # the same way nodes already have one.
     lines = "\n".join(
         f'  nwr["{k}"="{v}"](around:{radius_m},{lat},{lon});'
         for k, v in tags
@@ -148,10 +131,6 @@ def _parse_elements(elements: list[dict], lat: float, lon: float) -> list[dict]:
         )
         type_label = venue_category.replace("_", " ").title()
 
-        # A venue with no name tag is still worth surfacing if it at least has
-        # an address or website to act on — better than silently dropping it,
-        # which was previously throwing away a lot of real, usable results in
-        # areas where OSM tagging is less thorough.
         if not name:
             if address:
                 name = f"Unnamed {type_label} ({address.split(',')[0]})"
@@ -163,8 +142,6 @@ def _parse_elements(elements: list[dict], lat: float, lon: float) -> list[dict]:
             continue
         seen_names.add(name)
 
-        # Nodes carry lat/lon directly; ways/relations only get coordinates
-        # via "out center", which adds a "center": {lat, lon} object instead.
         center = el.get("center") or {}
         el_lat = float(el.get("lat", center.get("lat", lat)))
         el_lon = float(el.get("lon", center.get("lon", lon)))
@@ -207,8 +184,6 @@ def find_venues(lat: float, lon: float, activity: str, radius_m: int = 15000, ma
 
     venues = _parse_elements(elements, lat, lon)
 
-    # Sparse OSM coverage (small towns, rural areas) can come back empty at
-    # the default radius — free to just look further out before giving up.
     if not venues and radius_m < 40000:
         wider_elements = _run_overpass_query(_overpass_query(lat, lon, tags, radius_m * 3))
         if wider_elements:

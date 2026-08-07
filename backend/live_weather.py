@@ -18,7 +18,6 @@ from datetime import datetime, timedelta
 import requests
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-# Open-Meteo's free daily/hourly forecast horizon.
 MAX_FORECAST_HORIZON_DAYS = 16
 
 
@@ -85,7 +84,7 @@ def fetch_open_meteo(lat: float, lon: float, start_date: datetime, end_date: dat
         for idx, date_str in enumerate(daily_dates):
             hourly_vals = grouped.get(date_str)
             if not hourly_vals or not hourly_vals["temp"]:
-                return None  # incomplete coverage for this date -> fall back to climatology
+                return None
 
             t2m = sum(hourly_vals["temp"]) / len(hourly_vals["temp"])
             rh = sum(hourly_vals["rh"]) / len(hourly_vals["rh"]) if hourly_vals["rh"] else 70.0

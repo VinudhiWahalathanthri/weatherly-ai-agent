@@ -43,9 +43,6 @@ from farming import farming_analysis as _farming_analysis_api
 from scoring_engine import compute_scores, explain_decision
 from images import get_place_image
 
-# Kept low deliberately: each iteration burns one LLM call (Gemini's free tier
-# caps at 20 requests/day), and most real questions (evaluate -> maybe venues ->
-# finish) converge in 2-4 steps anyway.
 MAX_ITERATIONS = 5
 MAX_LOCATIONS = 4
 
@@ -55,11 +52,6 @@ _VENUE_REQUEST_KEYWORDS = {
     "stay near", "book a place", "resort", "resorts",
 }
 
-# Chit-chat detection: a full-message allowlist match, never substring/startswith —
-# "hey, is it safe to hike in Kandy tomorrow?" must NOT be treated as a greeting.
-# A trailing filler word ("hi there", "hey everyone") is still allowed since it
-# carries no planning content either — but anything beyond that (a real clause)
-# falls through to the LLM classifier in extract_intent instead of this regex.
 _GREETING_FILLER = r"(?:\s+(?:there|everyone|guys|friend|folks|team))?"
 _GREETING_RE = re.compile(
     rf"^(hi+|he+y+a?|hello+|yo+|howdy|greetings|good ?(morning|afternoon|evening|night)){_GREETING_FILLER}[\s!.,]*$"
@@ -84,9 +76,6 @@ def _is_chitchat(message: str) -> bool:
         return True
     return normalized in _SMALLTALK_SET
 
-# ---------------------------------------------------------------------------
-# Session memory (in-memory for this demo — swap for Redis/DB in production)
-# ---------------------------------------------------------------------------
 SESSIONS: dict[str, dict] = {}
 
 
@@ -120,7 +109,6 @@ def _merge_with_memory(intent: dict, message: str, session: dict) -> dict:
         for key in ("date_phrase", "activity", "event_size"):
             if not merged.get(key) and last.get(key):
                 merged[key] = last[key]
-        # Never inherit location for a new question — let the agent ask.
     else:
         for key in ("location", "date_phrase", "activity", "event_size"):
             if not merged.get(key) and last.get(key):
@@ -169,12 +157,6 @@ def _sample_windows(start, end, max_samples: int = 4):
         windows.append((w_start, w_end))
     return windows
 
-
-# ---------------------------------------------------------------------------
-# TOOLS — each takes (args, state, activity) and returns a small observation
-# dict for the LLM to read. Full results are stashed on `state["evaluated"]`
-# so the model only has to reason over compact summaries, not raw payloads.
-# ---------------------------------------------------------------------------
 
 def _resolve_evaluated(state: dict, location_hint: str | None) -> dict | None:
     if not location_hint:
@@ -416,8 +398,9 @@ def _build_reply(winner: dict, options: list[dict], explanation: str, rationale:
     loc = winner["location_name"].split(",")[0]
     date = winner["date"]
     sc = winner["scoring"]
+    label = "Recommended" if sc.get("grade", "C") not in ("D", "F") else "Not Recommended"
     score_line = (
-        f"**Recommended: {loc} — {date}**\n"
+        f"**{label}: {loc} — {date}**\n"
         f"Overall: {sc['score']}/100 (Grade {sc.get('grade', 'C')}) | "
         f"Comfort: {sc.get('comfort', sc['score'])}/100 | Safety: {sc.get('safety', sc['score'])}/100 | "
         f"Suitability: {sc.get('suitability', sc['score'])}/100"
@@ -430,17 +413,10 @@ def _build_reply(winner: dict, options: list[dict], explanation: str, rationale:
     return f"{score_line}{compare_note}{agent_note}\n\n{explanation}"
 
 
-# ---------------------------------------------------------------------------
-# THE AGENT
-# ---------------------------------------------------------------------------
 def run_agent(message: str, session_id: str) -> dict:
     session = _get_session(session_id)
 
     if _is_chitchat(message):
-        # Zero-cost fast path for the obvious, exact-match cases ("hi", "thanks") —
-        # skips the LLM call entirely. Anything even slightly different ("hi there",
-        # "what can you do") falls through to the real judgment call below instead
-        # of a rigid regex allowlist deciding it must be a planning request.
         reply = generate_chitchat_reply(message)
         session["history"].append({"message": message, "reply": reply})
         session["history"] = session["history"][-6:]
@@ -454,9 +430,6 @@ def run_agent(message: str, session_id: str) -> dict:
     raw_intent = extract_intent(message)
 
     if raw_intent.get("is_planning_request") is False:
-        # The LLM itself judged this isn't a planning request — genuine
-        # understanding of the message, not a pattern match against a fixed
-        # list of greeting phrasings.
         reply = raw_intent.get("casual_reply") or generate_chitchat_reply(message)
         session["history"].append({"message": message, "reply": reply})
         session["history"] = session["history"][-6:]
@@ -512,7 +485,6 @@ def run_agent(message: str, session_id: str) -> dict:
         args = action.get("args") or {}
 
         if tool_name == "finish" and not state["evaluated"]:
-            # Invalid — nothing evaluated yet. Treat like an unparsable action.
             consecutive_failures += 1
             action = _deterministic_fallback_action(state, candidates)
             thought = action.get("thought") or thought
@@ -521,10 +493,6 @@ def run_agent(message: str, session_id: str) -> dict:
         elif tool_name == "finish" and wants_venues and not any(
             o.get("venues") or o.get("online_venues") for o in state["evaluated"].values()
         ):
-            # The user explicitly asked for venues and the agent hasn't looked yet — force
-            # find_venues (OpenStreetMap, mirror-failover, no quota risk) rather than silently
-            # finishing without answering what was actually asked. The LLM is still free to
-            # additionally call search_venues_online afterward for richer, curated picks.
             best_so_far = max(state["evaluated"].values(), key=lambda o: o["scoring"]["score"])
             thought = "Forcing a venue lookup before finishing — the user asked about venues/hotels."
             tool_name = "find_venues"

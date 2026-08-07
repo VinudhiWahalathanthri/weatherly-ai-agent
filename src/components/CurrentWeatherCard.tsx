@@ -5,10 +5,6 @@ import {
 } from "lucide-react";
 import { Card } from "./ui/card";
 
-// ─────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────
-
 type WeatherNowResponse = {
   available: boolean;
   temp_c?: number;
@@ -22,11 +18,6 @@ type WeatherNowResponse = {
 
 type LoadState = "idle" | "locating" | "loading" | "ready" | "denied" | "error";
 
-// ─────────────────────────────────────────────
-// WMO weather code -> icon + label
-// https://open-meteo.com/en/docs (stable published standard)
-// ─────────────────────────────────────────────
-
 function weatherCodeToDisplay(code: number | undefined): { icon: React.ReactNode; label: string } {
   if (code === undefined) return { icon: <Cloud className="w-8 h-8" />, label: "Unknown" };
   if (code === 0) return { icon: <Sun className="w-8 h-8 text-amber-500" />, label: "Clear sky" };
@@ -39,10 +30,6 @@ function weatherCodeToDisplay(code: number | undefined): { icon: React.ReactNode
   if (code >= 95) return { icon: <CloudLightning className="w-8 h-8 text-purple-500" />, label: "Thunderstorm" };
   return { icon: <Cloud className="w-8 h-8 text-slate-400" />, label: "Cloudy" };
 }
-
-// ─────────────────────────────────────────────
-// Main component
-// ─────────────────────────────────────────────
 
 export default function CurrentWeatherCard({ onAskAI }: { onAskAI?: () => void }) {
   const [state, setState] = useState<LoadState>("idle");

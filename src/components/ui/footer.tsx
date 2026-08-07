@@ -42,7 +42,6 @@ const Footer: React.FC = () => (
         </div>
       </div>
 
-      {/* Column 1 */}
       <div>
         <h4 className="font-semibold text-white mb-3">Explore</h4>
         <ul className="space-y-2 text-sm">
@@ -69,7 +68,6 @@ const Footer: React.FC = () => (
         </ul>
       </div>
 
-      {/* Column 2 */}
       <div>
         <h4 className="font-semibold text-white mb-3">Discover</h4>
         <ul className="space-y-2 text-sm">
@@ -101,7 +99,6 @@ const Footer: React.FC = () => (
         </ul>
       </div>
 
-      {/* Column 3 */}
       <div>
         <h4 className="font-semibold text-white mb-3">Connect</h4>
         <ul className="space-y-2 text-sm">
@@ -132,7 +129,6 @@ const Footer: React.FC = () => (
           </li>
         </ul>
 
-        {/* Social Media */}
         <div className="flex gap-4 mt-4 text-gray-400">
           <motion.div whileHover={{ y: -4 }}>
             <Facebook className="w-5 h-5 hover:text-white cursor-pointer" />
@@ -150,7 +146,6 @@ const Footer: React.FC = () => (
       </div>
     </div>
 
-    {/* Bottom Bar */}
     <div className="border-t border-gray-700 py-4 text-xs text-center text-gray-400">
       Page Last Updated: <span className="font-semibold">Oct 10, 2025</span> •
       Page Editor: <span className="font-semibold">Ceylon XZORA</span> •

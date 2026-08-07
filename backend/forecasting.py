@@ -36,11 +36,9 @@ except Exception as e:
     print(f"[ERROR] Error loading ML model: {e}")
 
 POWER_API_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
-# Core variables for Prophet forecasting
 FORECAST_VARS = "T2M,PRECTOTCORR,WS10M"
-# Extended variables fetched alongside (not all run through Prophet — too slow)
 EXTENDED_VARS = "RH2M,CLOUD_AMT,T2M_MAX,T2M_MIN"
-API_PARAMS = FORECAST_VARS  # kept for backwards-compat with fetch helpers
+API_PARAMS = FORECAST_VARS
 WINDOW_DAYS = 7
 FORECAST_OVERRIDE_DAYS = 3
 
@@ -103,8 +101,7 @@ def fetch_nasa_data(lat: float, lon: float, start_date: str, end_date: str, para
 def _feels_like(temp_c: float, humidity_pct: float, wind_kmh: float) -> float:
     """Approximate apparent temperature using heat index / wind chill logic."""
     if temp_c >= 27 and humidity_pct >= 40:
-        # Steadman heat index (simplified)
-        T = temp_c * 9 / 5 + 32  # convert to °F for formula
+        T = temp_c * 9 / 5 + 32
         R = humidity_pct
         HI = (-42.379 + 2.04901523 * T + 10.14333127 * R
               - 0.22475541 * T * R - 0.00683783 * T ** 2
@@ -112,7 +109,6 @@ def _feels_like(temp_c: float, humidity_pct: float, wind_kmh: float) -> float:
               + 0.00085282 * T * R ** 2 - 0.00000199 * T ** 2 * R ** 2)
         return round((HI - 32) * 5 / 9, 1)
     if temp_c <= 10 and wind_kmh >= 4.8:
-        # Wind chill
         v = wind_kmh ** 0.16
         wc = 13.12 + 0.6215 * temp_c - 11.37 * v + 0.3965 * temp_c * v
         return round(wc, 1)
@@ -181,7 +177,6 @@ def _run_prediction_climatology(lat: float, lon: float, start_date: datetime, en
 
     current_data = fetch_current_data(lat, lon)
 
-    # Determine how far into the future the request is so we can label confidence.
     days_ahead = (start_date.date() - datetime.now().date()).days
     if days_ahead <= 3:
         confidence = "high"
@@ -193,7 +188,6 @@ def _run_prediction_climatology(lat: float, lon: float, start_date: datetime, en
         confidence = "low"
         confidence_label = "Long-term climate estimate based on 20yr historical avg (low precision)"
 
-    # Fetch both forecast vars and extended vars together for efficiency
     all_params = f"{FORECAST_VARS},{EXTENDED_VARS}"
     historical_data = {}
     for year_offset in range(1, 21):
@@ -230,13 +224,9 @@ def _run_prediction_climatology(lat: float, lon: float, start_date: datetime, en
     full_df = pd.concat(full_rows, axis=1) if full_rows else pd.DataFrame()
     full_df = full_df.apply(lambda col: col.fillna(col.mean()), axis=0)
 
-    # Only run Prophet on the 3 core forecast variables.
-    # Extended variables (humidity, cloud, etc.) are derived from historical means
-    # — running Prophet on 7+ variables would take too long per request.
     forecast_var_list = [v for v in FORECAST_VARS.split(",") if v in full_df.columns]
     extended_var_list = [v for v in EXTENDED_VARS.split(",") if v in full_df.columns]
 
-    # Pre-compute historical means for extended vars (used as point estimates)
     ext_hist_means: dict[str, float] = {v: float(full_df[v].mean()) for v in extended_var_list}
 
     prophet_dfs = {}
@@ -296,7 +286,6 @@ def _run_prediction_climatology(lat: float, lon: float, start_date: datetime, en
             "CloudPct": round(ext_hist_means.get("CLOUD_AMT", 50.0), 1),
         }
 
-    # Blend near-term historical current data for higher accuracy
     if current_data:
         for i in range(min(FORECAST_OVERRIDE_DAYS, len(date_range))):
             date_to_override = date_range[i].strftime("%Y-%m-%d")
@@ -309,7 +298,6 @@ def _run_prediction_climatology(lat: float, lon: float, start_date: datetime, en
                     if current_val is not None and prophet_val is not None:
                         hybrid_val = (current_val * current_weight) + (prophet_val * prophet_weight)
                         predictions[date_to_override][var] = round(hybrid_val, 2)
-                # Recalculate feels_like after blending
                 p = predictions[date_to_override]
                 p["feels_like"] = _feels_like(p["T2M"], p.get("RH2M", 70), p["WS10M"])
 

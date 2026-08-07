@@ -30,13 +30,8 @@ logging.basicConfig(
 
 WEATHERLY_API = os.getenv("WEATHERLY_API_URL", "http://localhost:8000")
 
-# Per-user session IDs so the agent remembers context across messages.
 user_sessions: dict[str, str] = {}
 
-
-# ──────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────
 
 def call_agent(user_id: str, message: str) -> dict:
     """POST to the Weatherly planning agent and return the full response."""
@@ -84,7 +79,6 @@ def build_reply(data: dict) -> tuple[str, InlineKeyboardMarkup | None]:
                 f"  <i>{esc(', '.join(opt['reasons'][:2]))}</i>{conf_line}"
             )
 
-    # Build venue buttons for the top result
     buttons = []
     if options and options[0].get("venues"):
         lines.append(f"\n<b>📍 Nearby venues ({esc(options[0]['location'].split(',')[0])}):</b>")
@@ -105,10 +99,6 @@ def build_reply(data: dict) -> tuple[str, InlineKeyboardMarkup | None]:
     keyboard = InlineKeyboardMarkup(buttons) if buttons else None
     return "\n".join(lines), keyboard
 
-
-# ──────────────────────────────────────────────
-# Handlers
-# ──────────────────────────────────────────────
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
@@ -164,8 +154,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     stop_event = asyncio.Event()
     keepalive_task = asyncio.create_task(_typing_keepalive(context.bot, chat_id, stop_event))
     try:
-        # call_agent is a blocking `requests.post` — run it off the event loop so
-        # the keepalive task above can actually keep firing while it waits.
         data = await asyncio.to_thread(call_agent, user_id, text)
         user_sessions[user_id] = data["session_id"]
         reply, keyboard = build_reply(data)
@@ -209,10 +197,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.error("Update caused error: %s", context.error)
 
-
-# ──────────────────────────────────────────────
-# Main
-# ──────────────────────────────────────────────
 
 def main() -> None:
     token = os.getenv("TELEGRAM_TOKEN")

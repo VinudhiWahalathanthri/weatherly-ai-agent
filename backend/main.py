@@ -96,8 +96,6 @@ def agent_chat(req: AgentChatRequest):
     return result
 
 
-# Kept for backwards compatibility with the earlier single-shot /plan endpoint.
-# New integrations should use /agent/chat.
 @app.post("/plan")
 def plan_legacy(req: AgentChatRequest):
     session_id = req.session_id or str(uuid.uuid4())
@@ -152,7 +150,6 @@ def email_report(req: EmailReportRequest):
     smtp_pass = os.getenv("SMTP_PASS", "")
 
     if not smtp_host or not smtp_user:
-        # No SMTP configured — return the report for client-side download instead
         return {
             "sent": False,
             "reason": "Email server not configured. Download the report instead.",

@@ -8,9 +8,6 @@ import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-lea
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-// Leaflet's default marker icons reference relative image paths that don't
-// resolve correctly under Vite's bundler — point them at the CDN instead.
-// (This is a one-time fix, free/no API key, unlike the Google Maps setup it replaces.)
 delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
@@ -114,8 +111,6 @@ export default function App() {
     return () => window.removeEventListener("mousemove", onMouseMove);
   }, [cursorX, cursorY]);
 
-  // Reverse-geocode a clicked point using OpenStreetMap's free Nominatim API
-  // (no API key, no billing — replaces the old Google Geocoder call).
   const reverseGeocode = async (latitude: number, longitude: number) => {
     try {
       const res = await fetch(
@@ -137,8 +132,6 @@ export default function App() {
     reverseGeocode(roundedLat, roundedLon);
   };
 
-  // Forward-geocode the search box using Nominatim (free, no key) instead of
-  // the Google Places Geocoder.
   const handleSearchPlace = async () => {
     if (!searchQuery) return;
     try {
@@ -369,14 +362,11 @@ export default function App() {
     if (nextSuitable) return nextSuitable;
     if (nextCaution) return nextCaution;
 
-    // If neither 'Suitable' nor 'Caution' were found after the start date.
     return null;
   };
 
-  // Derived variable for use in JSX
   const nextBestDateInfo = findNextBestDate(results?.predictions, startDate);
 
-  // Helper to format date string (e.g., "2025-10-10" to "Oct 10, 2025")
   const formatDateForDisplay = (dateString: string) => {
     if (!dateString) return "";
     try {
@@ -400,21 +390,18 @@ export default function App() {
 
     const { T2M, PRECTOTCORR, WS10M } = prediction;
 
-    // 1. Heat Risk (based on Temperature T2M)
     let heatRiskValue = 0;
-    if (T2M >= 35) heatRiskValue = 90; // Extreme Heat
-    else if (T2M >= 30) heatRiskValue = 65; // High Heat
-    else if (T2M >= 25) heatRiskValue = 30; // Moderate Heat
-    else heatRiskValue = 10; // Low Heat
+    if (T2M >= 35) heatRiskValue = 90;
+    else if (T2M >= 30) heatRiskValue = 65;
+    else if (T2M >= 25) heatRiskValue = 30;
+    else heatRiskValue = 10;
 
-    // 2. Rainfall/Flooding Risk (based on PRECTOTCORR)
     let rainRiskValue = 0;
-    if (PRECTOTCORR >= 10) rainRiskValue = 95; // Heavy Rain/Flood Risk
-    else if (PRECTOTCORR >= 4) rainRiskValue = 70; // Moderate Rain
-    else if (PRECTOTCORR >= 1) rainRiskValue = 40; // Light Rain
-    else rainRiskValue = 5; // Minimal Rain
+    if (PRECTOTCORR >= 10) rainRiskValue = 95;
+    else if (PRECTOTCORR >= 4) rainRiskValue = 70;
+    else if (PRECTOTCORR >= 1) rainRiskValue = 40;
+    else rainRiskValue = 5;
 
-    // 3. Wind Hazard Risk (based on WS10M)
     let windRiskValue = 0;
     if (WS10M >= 30) windRiskValue = 85;
     else if (WS10M >= 20) windRiskValue = 55;
@@ -626,7 +613,6 @@ export default function App() {
                 </motion.div>
               </motion.div>
 
-              {/* Map — OpenStreetMap tiles via Leaflet, free, no API key */}
               <motion.div
                 className="w-full h-96 bg-gray-100 rounded-lg overflow-hidden border-2 border-gray-200 mt-5 mb-6"
                 initial={{ opacity: 0, y: 10 }}
@@ -692,34 +678,6 @@ export default function App() {
 
                         <div className="grid grid-cols-2 gap-2">
                           <div className="flex flex-col justify-center">
-                            {/* <h3 className="font-semibold text-lg text-gray-800 mb-4 flex items-center gap-2">
-                            <span className="text-2xl">📊</span>
-                            Weather Details
-                          </h3> */}
-                            {/* <div className="space-y-3 text-sm text-gray-700 mb-8">
-                            <p>
-                              <strong>Activity:</strong> {results.activity}
-                            </p>
-                            <p>
-                              <strong>Suitability:</strong>{" "}
-                              <span className="font-semibold">
-                                {firstDayPrediction.suitability_status}
-                              </span>
-                            </p>
-                            <p>
-                              <strong>Temperature (Avg):</strong>{" "}
-                              {firstDayPrediction.T2M.toFixed(1)} °C
-                            </p>
-                            <p>
-                              <strong>Rainfall (Total):</strong>{" "}
-                              {firstDayPrediction.PRECTOTCORR.toFixed(1)} mm/day
-                            </p>
-                            <p>
-                              <strong>Wind Speed (Avg):</strong>{" "}
-                              {firstDayPrediction.WS10M.toFixed(1)} km/h
-                            </p>
-                          </div> */}
-
                             <h3 className="font-semibold text-lg text-gray-800 mb-0 flex items-center gap-2">
                               Tips & Reminders
                             </h3>
