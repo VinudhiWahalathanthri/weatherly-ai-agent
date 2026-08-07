@@ -1,4 +1,4 @@
-# Weatherly
+# Weatherly AI Agent
 Weatherly is an AI weather-planning assistant.All you have to do is Tell it what you want to do, a wedding, a beach day, a hike, a harvest and it pulls real climate/forecast data, scores the comfort/safety/suitability of your plan, explains its reasoning in plain language, and points you to real nearby venues.
 
 Made with ❤️ By Vinudhi, Sinura, Venuki and Pulesh for IDEALIZE'26
