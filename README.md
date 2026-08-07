@@ -7,7 +7,6 @@ It has two front ends onto the same backend:
 - **Plan a Trip** — a conversational AI agent (chat interface).
 - **Advanced Search** — a manual mode where you pick a location on a map, an activity, and a date range yourself, and get the raw forecast + suitability charts.
 
----
 
 ## Table of contents
 
