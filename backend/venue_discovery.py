@@ -11,7 +11,16 @@ so the user gets actionable links alongside the weather recommendation.
 import math
 import requests
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# The public Overpass instance (overpass-api.de) is the default everyone hits,
+# so it's frequently overloaded/slow — we saw live 504s during testing. These
+# are all free, keyless, community-run mirrors of the same OSM data; trying
+# them in order turns "one flaky server" into "all three would have to be
+# down at once" for basically no extra cost.
+OVERPASS_URLS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.openstreetmap.fr/api/interpreter",
+]
 
 # OSM tags relevant to each activity type. The agent matches the activity
 # string against these keys (substring match, lowercase).
@@ -72,16 +81,40 @@ def _match_tags(activity: str) -> list[tuple[str, str]]:
 
 
 def _overpass_query(lat: float, lon: float, tags: list[tuple[str, str]], radius_m: int) -> str:
-    node_lines = "\n".join(
-        f'  node["{k}"="{v}"](around:{radius_m},{lat},{lon});'
+    # "nwr" (node/way/relation combined) instead of just "node" — a lot of real
+    # venues (hotel buildings, parks, sports grounds) are mapped as ways or
+    # relations with no standalone point, so a node-only query silently missed
+    # them. "out center" gives ways/relations a usable lat/lon (their centroid)
+    # the same way nodes already have one.
+    lines = "\n".join(
+        f'  nwr["{k}"="{v}"](around:{radius_m},{lat},{lon});'
         for k, v in tags
     )
-    return f"""[out:json][timeout:12];
+    return f"""[out:json][timeout:20];
 (
-{node_lines}
+{lines}
 );
-out body 30;
+out center 40;
 """
+
+
+def _run_overpass_query(query: str) -> list[dict] | None:
+    """POSTs the query to each mirror in turn, returning the first success.
+    Returns None only if every mirror failed."""
+    for url in OVERPASS_URLS:
+        try:
+            resp = requests.post(
+                url,
+                data={"data": query},
+                timeout=18,
+                headers={"User-Agent": "WeatherlyAI/1.0 (sinurawahalathanthri11@gmail.com)"},
+            )
+            resp.raise_for_status()
+            return resp.json().get("elements", [])
+        except Exception as e:
+            print(f"[WARN] Overpass mirror {url} failed: {e}")
+            continue
+    return None
 
 
 def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -92,51 +125,13 @@ def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return R * 2 * math.asin(math.sqrt(a))
 
 
-def find_venues(lat: float, lon: float, activity: str, radius_m: int = 15000, max_results: int = 6) -> list[dict]:
-    """
-    Returns up to `max_results` nearby venues relevant to `activity`.
-    Each result dict has: name, type, distance_km, website, osm_link, address.
-    Returns [] on any error so the agent degrades gracefully.
-    """
-    tags = _match_tags(activity)
-    query = _overpass_query(lat, lon, tags, radius_m)
-
-    try:
-        resp = requests.post(
-            OVERPASS_URL,
-            data={"data": query},
-            timeout=14,
-            headers={"User-Agent": "WeatherlyAI/1.0 (sinurawahalathanthri11@gmail.com)"},
-        )
-        resp.raise_for_status()
-        elements = resp.json().get("elements", [])
-    except Exception as e:
-        print(f"[WARN] Overpass venue search failed: {e}")
-        return []
-
+def _parse_elements(elements: list[dict], lat: float, lon: float) -> list[dict]:
     venues: list[dict] = []
     seen_names: set[str] = set()
 
     for el in elements:
         osm_tags = el.get("tags", {})
         name = osm_tags.get("name", "").strip()
-        if not name or name in seen_names:
-            continue
-        seen_names.add(name)
-
-        el_lat = float(el.get("lat", lat))
-        el_lon = float(el.get("lon", lon))
-        distance_km = round(_haversine(lat, lon, el_lat, el_lon), 1)
-
-        el_type = el.get("type", "node")
-        el_id = el.get("id", "")
-        osm_link = f"https://www.openstreetmap.org/{el_type}/{el_id}"
-
-        website = (
-            osm_tags.get("website")
-            or osm_tags.get("contact:website")
-            or osm_tags.get("url")
-        )
 
         addr_parts = [
             osm_tags.get("addr:housenumber", ""),
@@ -151,10 +146,43 @@ def find_venues(lat: float, lon: float, activity: str, radius_m: int = 15000, ma
             or osm_tags.get("tourism")
             or "venue"
         )
+        type_label = venue_category.replace("_", " ").title()
+
+        # A venue with no name tag is still worth surfacing if it at least has
+        # an address or website to act on — better than silently dropping it,
+        # which was previously throwing away a lot of real, usable results in
+        # areas where OSM tagging is less thorough.
+        if not name:
+            if address:
+                name = f"Unnamed {type_label} ({address.split(',')[0]})"
+            elif osm_tags.get("website") or osm_tags.get("contact:website"):
+                name = f"Unnamed {type_label}"
+            else:
+                continue
+        if name in seen_names:
+            continue
+        seen_names.add(name)
+
+        # Nodes carry lat/lon directly; ways/relations only get coordinates
+        # via "out center", which adds a "center": {lat, lon} object instead.
+        center = el.get("center") or {}
+        el_lat = float(el.get("lat", center.get("lat", lat)))
+        el_lon = float(el.get("lon", center.get("lon", lon)))
+        distance_km = round(_haversine(lat, lon, el_lat, el_lon), 1)
+
+        el_type = el.get("type", "node")
+        el_id = el.get("id", "")
+        osm_link = f"https://www.openstreetmap.org/{el_type}/{el_id}"
+
+        website = (
+            osm_tags.get("website")
+            or osm_tags.get("contact:website")
+            or osm_tags.get("url")
+        )
 
         venues.append({
             "name": name,
-            "type": venue_category.replace("_", " ").title(),
+            "type": type_label,
             "distance_km": distance_km,
             "website": website,
             "osm_link": osm_link,
@@ -162,4 +190,28 @@ def find_venues(lat: float, lon: float, activity: str, radius_m: int = 15000, ma
         })
 
     venues.sort(key=lambda v: v["distance_km"])
+    return venues
+
+
+def find_venues(lat: float, lon: float, activity: str, radius_m: int = 15000, max_results: int = 6) -> list[dict]:
+    """
+    Returns up to `max_results` nearby venues relevant to `activity`.
+    Each result dict has: name, type, distance_km, website, osm_link, address.
+    Returns [] on any error so the agent degrades gracefully.
+    """
+    tags = _match_tags(activity)
+
+    elements = _run_overpass_query(_overpass_query(lat, lon, tags, radius_m))
+    if elements is None:
+        return []
+
+    venues = _parse_elements(elements, lat, lon)
+
+    # Sparse OSM coverage (small towns, rural areas) can come back empty at
+    # the default radius — free to just look further out before giving up.
+    if not venues and radius_m < 40000:
+        wider_elements = _run_overpass_query(_overpass_query(lat, lon, tags, radius_m * 3))
+        if wider_elements:
+            venues = _parse_elements(wider_elements, lat, lon)
+
     return venues[:max_results]

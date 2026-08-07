@@ -149,7 +149,7 @@ export default function WeatherLocationSelector() {
 
                 <div className="relative w-full h-96 bg-gray-100 rounded-lg overflow-hidden border-2 border-gray-200">
                   {searching && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/60 z-[500]">
+                    <div className="absolute inset-0 flex items-center justify-center bg-white/60 ">
                       <Loader className="w-8 h-8 animate-spin text-blue-500" />
                     </div>
                   )}

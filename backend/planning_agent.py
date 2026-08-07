@@ -404,21 +404,32 @@ def call_llm_json(prompt: str, timeout: int = 20) -> dict | None:
 
 
 def _extract_intent_llm(message: str) -> dict | None:
-    prompt = f"""You extract structured planning intent from a user's weather-planning request.
-Respond with ONLY a JSON object, no other text, in this exact shape:
-{{"location": "<city/place name or null>", "date_phrase": "<the phrase describing when, or null>", "activity": "<short activity description or null>", "event_size": "<number of people if mentioned, else null>"}}
+    prompt = f"""You are the front door of a weather-planning assistant. First judge whether this \
+message is actually a planning request (asking about weather for a trip, event, day out, or farming \
+activity) versus casual conversation (greetings, thanks, small talk, "what can you do", asking who you \
+are, etc). Getting this right matters — misreading a greeting as a planning request wastes time \
+running a full weather lookup on nothing.
 
-User request: "{message}"
+If it IS a planning request, extract the fields (missing ones are null, not guessed).
+If it is NOT, leave the fields null and instead write a short, warm, in-character reply (max ~20 words) \
+as "casual_reply" — you're Weatherly, a weather-planning assistant for trips, events, and farming.
+
+Respond with ONLY a JSON object, no other text, in this exact shape:
+{{"is_planning_request": <true or false>, "location": "<city/place name or null>", "date_phrase": "<the phrase describing when, or null>", "activity": "<short activity description or null>", "event_size": "<number of people if mentioned, else null>", "casual_reply": "<reply if not a planning request, else null>"}}
+
+User message: "{message}"
 JSON:"""
 
     parsed = call_llm_json(prompt, timeout=20)
     if parsed is None:
         return None
     return {
+        "is_planning_request": parsed.get("is_planning_request", True),
         "location": parsed.get("location") or None,
         "date_phrase": parsed.get("date_phrase") or None,
         "activity": parsed.get("activity") or None,
         "event_size": parsed.get("event_size") or None,
+        "casual_reply": parsed.get("casual_reply") or None,
     }
 
 
@@ -579,13 +590,24 @@ def _extract_intent_rules(message: str) -> dict:
 def extract_intent(message: str) -> dict:
     intent = _extract_intent_llm(message)
     if intent is None:
+        # No LLM available at all — the regex-based chitchat fast path in
+        # agent.py already caught the obvious greetings before this runs, so
+        # assume planning intent here and let the agent's own ask_user tool
+        # handle anything that turns out to be too vague to act on.
         intent = _extract_intent_rules(message)
+        intent["is_planning_request"] = True
+        intent["casual_reply"] = None
+    elif intent.get("is_planning_request") is False:
+        # LLM judged this as small talk — don't bother backfilling
+        # location/date/activity from the rule-based extractor, there's
+        # nothing to plan.
+        pass
     else:
         # Backfill anything the LLM missed using the rule-based extractor
         fallback = _extract_intent_rules(message)
-        for key, val in fallback.items():
+        for key in ("location", "date_phrase", "activity", "event_size"):
             if not intent.get(key):
-                intent[key] = val
+                intent[key] = fallback.get(key)
     return intent
 
 

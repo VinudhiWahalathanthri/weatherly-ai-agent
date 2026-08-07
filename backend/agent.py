@@ -57,12 +57,21 @@ _VENUE_REQUEST_KEYWORDS = {
 
 # Chit-chat detection: a full-message allowlist match, never substring/startswith —
 # "hey, is it safe to hike in Kandy tomorrow?" must NOT be treated as a greeting.
-_GREETING_RE = re.compile(r"^(hi+|he+y+a?|hello+|yo+|howdy|greetings|good ?(morning|afternoon|evening|night))[\s!.,]*$")
+# A trailing filler word ("hi there", "hey everyone") is still allowed since it
+# carries no planning content either — but anything beyond that (a real clause)
+# falls through to the LLM classifier in extract_intent instead of this regex.
+_GREETING_FILLER = r"(?:\s+(?:there|everyone|guys|friend|folks|team))?"
+_GREETING_RE = re.compile(
+    rf"^(hi+|he+y+a?|hello+|yo+|howdy|greetings|good ?(morning|afternoon|evening|night)){_GREETING_FILLER}[\s!.,]*$"
+)
 _FAREWELL_RE = re.compile(r"^(bye+|goodbye|see ?you( later| soon)?|good ?night|cya|take care)[\s!.,]*$")
 _THANKS_RE = re.compile(r"^(thanks?( you)?( so much| a lot| very much)?|thx|ty|much appreciated|appreciate it)[\s!.,]*$")
 _SMALLTALK_SET = {
     "how are you", "how are you doing", "hows it going", "how's it going",
     "whats up", "what's up", "how are things",
+    "what can you do", "what do you do", "what can you do for me",
+    "who are you", "what are you", "are you an ai", "are you a bot",
+    "can you help me", "can you help", "help",
 }
 
 
@@ -306,16 +315,17 @@ TOOL_SPECS = {
     "find_venues": {
         "args": "location (string, must match an already-evaluated location)",
         "description": "Look up nearby venues (hotels, parks, grounds, etc) via OpenStreetMap map data — "
-                        "fast, gives distance and a map link, but names/websites are sometimes sparse.",
+                        "reliable, gives distance and a map link. Call this FIRST when venues are relevant. "
+                        "ALWAYS call at least one of find_venues or search_venues_online before finishing if "
+                        "the user's message mentions venues, hotels, places to stay, or where to hold/host "
+                        "the event — do not finish without it if they asked.",
     },
     "search_venues_online": {
         "args": "location (string, must match an already-evaluated location)",
-        "description": "Search the web (Google Search) for real, named venues/hotels/event spaces with "
-                        "an actual website or Maps link — richer, more concrete recommendations than "
-                        "find_venues. Prefer this one when the user wants actual venues to consider "
-                        "booking. ALWAYS call at least one of find_venues or search_venues_online before "
-                        "finishing if the user's message mentions venues, hotels, places to stay, or where "
-                        "to hold/host the event — do not finish without it if they asked.",
+        "description": "Search the web (Google Search) for real, named venues with an actual website link "
+                        "— richer than find_venues, but this runs on a limited quota and can be unavailable. "
+                        "Use it to ADD a couple of curated picks after find_venues already has results, not "
+                        "as your first attempt — if it errors, don't retry it, just rely on find_venues.",
     },
     "farming_analysis": {
         "args": "location (string, must match an already-evaluated location)",
@@ -427,6 +437,10 @@ def run_agent(message: str, session_id: str) -> dict:
     session = _get_session(session_id)
 
     if _is_chitchat(message):
+        # Zero-cost fast path for the obvious, exact-match cases ("hi", "thanks") —
+        # skips the LLM call entirely. Anything even slightly different ("hi there",
+        # "what can you do") falls through to the real judgment call below instead
+        # of a rigid regex allowlist deciding it must be a planning request.
         reply = generate_chitchat_reply(message)
         session["history"].append({"message": message, "reply": reply})
         session["history"] = session["history"][-6:]
@@ -438,6 +452,22 @@ def run_agent(message: str, session_id: str) -> dict:
         }
 
     raw_intent = extract_intent(message)
+
+    if raw_intent.get("is_planning_request") is False:
+        # The LLM itself judged this isn't a planning request — genuine
+        # understanding of the message, not a pattern match against a fixed
+        # list of greeting phrasings.
+        reply = raw_intent.get("casual_reply") or generate_chitchat_reply(message)
+        session["history"].append({"message": message, "reply": reply})
+        session["history"] = session["history"][-6:]
+        return {
+            "reply": reply, "explanation": "", "intent": {}, "plan": "chitchat",
+            "steps": [{"step": "Understand request", "tool": "extract_intent",
+                       "detail": "Judged not to be a planning request — replied directly instead of "
+                                 "running a weather lookup on nothing."}],
+            "options": [],
+        }
+
     intent = _merge_with_memory(raw_intent, message, session)
     activity = intent.get("activity") or "outdoor activity"
 
@@ -491,20 +521,13 @@ def run_agent(message: str, session_id: str) -> dict:
         elif tool_name == "finish" and wants_venues and not any(
             o.get("venues") or o.get("online_venues") for o in state["evaluated"].values()
         ):
-            # The user explicitly asked for venues and the agent hasn't looked yet — force it
-            # rather than silently finishing without answering what was actually asked.
-            # search_venues_online gives real named businesses with links, closer to what
-            # someone means by "venue recommendations" than bare OSM map data — but if that's
-            # already been tried and came back empty, fall back to find_venues instead of
-            # retrying the same failing call and burning the iteration budget.
+            # The user explicitly asked for venues and the agent hasn't looked yet — force
+            # find_venues (OpenStreetMap, mirror-failover, no quota risk) rather than silently
+            # finishing without answering what was actually asked. The LLM is still free to
+            # additionally call search_venues_online afterward for richer, curated picks.
             best_so_far = max(state["evaluated"].values(), key=lambda o: o["scoring"]["score"])
-            already_tried_online = any("search_venues_online(" in s for s in scratchpad)
-            if already_tried_online:
-                thought = "Falling back to OpenStreetMap venue lookup — the web search didn't return usable results."
-                tool_name = "find_venues"
-            else:
-                thought = "Forcing a venue search before finishing — the user asked about venues/hotels."
-                tool_name = "search_venues_online"
+            thought = "Forcing a venue lookup before finishing — the user asked about venues/hotels."
+            tool_name = "find_venues"
             args = {"location": best_so_far["location_name"]}
 
         steps.append({"step": f"Decide (step {i + 1})", "tool": "planner", "detail": thought})
