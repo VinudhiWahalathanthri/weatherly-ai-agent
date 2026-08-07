@@ -243,7 +243,7 @@ project-root/
 └── README.md
 ```
 
----
+----
 
 ## Licensing
 
