@@ -172,6 +172,15 @@ def farming_analysis(
     humidity_pct: float = 70.0,
 ) -> dict:
     """
+    rain_mm is the forecasted day's rainfall (mm/day) — the same unit used
+    everywhere else in the app. Crop profiles and the risk/opportunity
+    thresholds below are calibrated on MONTHLY totals (a farmer cares about a
+    month's moisture, not one day), so it's scaled up here before any of
+    those comparisons. Feeding the raw daily figure into monthly thresholds
+    was the bug that let a single heavy-rain day read as a farming
+    "opportunity" — 37mm in one day is a downpour, not the mild top-up a
+    37mm/month figure would represent.
+
     Returns a dict with:
       crop_name, farming_score (0-100), suitability_label,
       risks (list[str]), opportunities (list[str]), advice (str)
@@ -180,13 +189,23 @@ def farming_analysis(
     if crop is None:
         crop = CROP_PROFILES[4]
 
+    rain_mm_monthly = rain_mm * 30
+
     t_score = crop.temp_score(temp_c)
-    r_score = crop.rain_score(rain_mm)
+    r_score = crop.rain_score(rain_mm_monthly)
     w_score = max(0, int(100 * (1 - max(0, wind_kmh - crop.wind_max) / 40)))
     farming_score = int(0.45 * t_score + 0.40 * r_score + 0.15 * w_score)
 
-    risks = detect_risks(temp_c, rain_mm, wind_kmh, humidity_pct)
-    opportunities = detect_opportunities(temp_c, rain_mm, wind_kmh)
+    if r_score <= 10:
+        farming_score = min(farming_score, 30)
+    elif r_score <= 40:
+        farming_score = min(farming_score, 55)
+
+    risks = detect_risks(temp_c, rain_mm_monthly, wind_kmh, humidity_pct)
+    opportunities = detect_opportunities(temp_c, rain_mm_monthly, wind_kmh)
+
+    if rain_mm >= 30:
+        risks.insert(0, f"Heavy rain today ({rain_mm:.0f}mm/day) — delay any field work, spraying, or harvesting planned for today")
 
     if farming_score >= 75 and not risks:
         label = "Excellent"
@@ -200,10 +219,10 @@ def farming_analysis(
     advice_parts = []
     if temp_c > crop.temp_range[2]:
         advice_parts.append(f"temperature above ideal for {crop.name} (ideal: {crop.temp_range[1]}–{crop.temp_range[2]}°C)")
-    if rain_mm < crop.rain_min_monthly:
-        advice_parts.append(f"supplemental irrigation likely needed (monthly rainfall {rain_mm:.0f}mm, needs {crop.rain_min_monthly}mm)")
-    if rain_mm > crop.rain_max_monthly:
-        advice_parts.append(f"excess rainfall may waterlog fields (monthly {rain_mm:.0f}mm, max {crop.rain_max_monthly}mm)")
+    if rain_mm_monthly < crop.rain_min_monthly:
+        advice_parts.append(f"supplemental irrigation likely needed (est. {rain_mm_monthly:.0f}mm/month at this rate, {crop.name} needs {crop.rain_min_monthly}mm)")
+    if rain_mm_monthly > crop.rain_max_monthly:
+        advice_parts.append(f"excess rainfall may waterlog fields (est. {rain_mm_monthly:.0f}mm/month at this rate, max {crop.rain_max_monthly}mm)")
     advice = f"{crop.name}: {'; '.join(advice_parts)}." if advice_parts else f"{crop.name} conditions look suitable."
 
     return {

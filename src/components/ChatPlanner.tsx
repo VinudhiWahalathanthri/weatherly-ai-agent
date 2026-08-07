@@ -99,15 +99,9 @@ const SUGGESTIONS = [
   "Is it safe to harvest rice in Polonnaruwa next week?",
 ];
 
-const confidenceStyle: Record<string, string> = {
-  high:   "bg-green-50 text-green-700 border-green-200",
-  medium: "bg-amber-50 text-amber-700 border-amber-200",
-  low:    "bg-slate-50 text-slate-600 border-slate-200",
-};
-
 const gradeColor: Record<string, string> = {
-  "A+": "text-green-600", A: "text-green-600", B: "text-blue-600",
-  C: "text-amber-600",    D: "text-orange-600", F: "text-red-600",
+  "A+": "text-emerald-600", A: "text-emerald-600", B: "text-sky-600",
+  C: "text-amber-600",      D: "text-orange-600",   F: "text-rose-600",
 };
 
 function getWeatherIcon(o: AgentOption): { icon: string; description: string } {
@@ -119,12 +113,12 @@ function getWeatherIcon(o: AgentOption): { icon: string; description: string } {
 }
 
 const gradeBanner: Record<string, { bg: string; text: string; emoji: string }> = {
-  "A+": { bg: "bg-gradient-to-r from-green-500 to-emerald-500", text: "Excellent for your plans", emoji: "☀️" },
-  A:    { bg: "bg-gradient-to-r from-green-500 to-emerald-500", text: "Excellent for your plans", emoji: "☀️" },
-  B:    { bg: "bg-gradient-to-r from-green-500 to-emerald-500", text: "Good conditions overall", emoji: "🙂" },
-  C:    { bg: "bg-gradient-to-r from-yellow-500 to-amber-500", text: "Proceed with caution", emoji: "⚠️" },
-  D:    { bg: "bg-gradient-to-r from-red-500 to-rose-500", text: "Not recommended", emoji: "❌" },
-  F:    { bg: "bg-gradient-to-r from-red-500 to-rose-500", text: "Not recommended", emoji: "❌" },
+  "A+": { bg: "bg-gradient-to-r from-emerald-500 to-teal-500", text: "Excellent for your plans", emoji: "☀️" },
+  A:    { bg: "bg-gradient-to-r from-emerald-500 to-teal-500", text: "Excellent for your plans", emoji: "☀️" },
+  B:    { bg: "bg-gradient-to-r from-sky-500 to-emerald-500",  text: "Good conditions overall", emoji: "🙂" },
+  C:    { bg: "bg-gradient-to-r from-amber-500 to-orange-400", text: "Proceed with caution", emoji: "⚠️" },
+  D:    { bg: "bg-gradient-to-r from-rose-500 to-red-500",     text: "Not recommended", emoji: "❌" },
+  F:    { bg: "bg-gradient-to-r from-rose-500 to-red-500",     text: "Not recommended", emoji: "❌" },
 };
 
 const API_BASE = "";
@@ -263,52 +257,44 @@ export default function ChatPlanner() {
 
   return (
     <div className="flex flex-col h-full max-w-3xl mx-auto w-full pt-16">
-      <div className="flex items-center gap-2.5 px-4 pb-3 pt-2">
-        <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center shrink-0">
-          <Sparkles className="w-4 h-4 text-white" />
+      <div className="flex items-center gap-3 px-4 pb-3 pt-2">
+        <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-sky-400 via-blue-500 to-indigo-600 flex items-center justify-center shrink-0 shadow-md shadow-blue-500/25">
+          <Sparkles className="w-5 h-5 text-white" />
         </div>
-        <div>
-          <div className="font-semibold text-sm text-gray-900">Weatherly AI Planning Agent</div>
-          <div className="text-xs text-gray-500">Comfort · Safety · Suitability for trips, events &amp; farming</div>
+        <div className="min-w-0">
+          <div className="font-black text-[15px] text-slate-900 tracking-tight">Weatherly AI Planning Agent</div>
+          <div className="text-xs text-slate-500">Comfort · Safety · Suitability for trips, events &amp; farming</div>
+        </div>
+        <div className="ml-auto hidden sm:flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full shrink-0">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+          </span>
+          Live weather data
         </div>
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {messages.map((msg, i) => (
-          <MessageBubble key={i} msg={msg} onSend={send} />
-        ))}
+        {messages.length <= 1 ? (
+          <EmptyState onSend={send} onFocusInput={() => inputRef.current?.focus()} />
+        ) : (
+          messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)
+        )}
         {loading && (
-          <div className="flex items-center gap-2 text-sm text-gray-400 pl-1">
-            <Loader className="w-4 h-4 animate-spin text-blue-500" />
+          <div className="flex items-center gap-2.5 text-sm text-slate-500 pl-1 animate-in fade-in">
+            <span className="w-7 h-7 rounded-full bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-sm">
+              <Loader className="w-3.5 h-3.5 animate-spin text-blue-500" />
+            </span>
             <span>Fetching NASA climate data, running analysis…</span>
           </div>
         )}
       </div>
 
-      {messages.length <= 1 && (
-        <div className="px-4 pb-1">
-          <CurrentWeatherCard onAskAI={() => inputRef.current?.focus()} />
-        </div>
-      )}
-      {messages.length <= 1 && (
-        <div className="px-4 pb-3 flex flex-wrap gap-2">
-          {SUGGESTIONS.map((s) => (
-            <button
-              key={s}
-              onClick={() => send(s)}
-              className="text-xs px-3 py-1.5 rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm"
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      )}
-
       {listening && (
-        <div className="px-4 pb-1 flex items-center gap-1.5 text-xs text-red-500">
+        <div className="px-4 pb-1 flex items-center gap-1.5 text-xs text-rose-500">
           <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
           </span>
           Listening… release the mic to send
         </div>
@@ -316,14 +302,14 @@ export default function ChatPlanner() {
 
       <form
         onSubmit={(e) => { e.preventDefault(); send(input); }}
-        className="flex items-center gap-2 p-4 border-t border-gray-200 bg-white"
+        className="flex items-center gap-2 p-4 border-t border-slate-200/70 bg-white/75 backdrop-blur-md"
       >
         <input
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={listening ? "Speak now…" : "e.g. 'Best beach vacation in Thailand next month?'"}
-          className="flex-1 bg-gray-50 border border-gray-300 rounded-full px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
+          className="flex-1 bg-white border border-slate-300 rounded-full px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 transition-all shadow-sm"
         />
 
         {SpeechRecognitionCtor && (
@@ -333,7 +319,7 @@ export default function ChatPlanner() {
               onChange={(e) => setVoiceLang(e.target.value)}
               disabled={listening}
               title="Voice input language"
-              className="text-xs bg-gray-50 border border-gray-300 rounded-full px-2 py-2.5 text-gray-500 outline-none shrink-0"
+              className="text-xs bg-white border border-slate-300 rounded-full px-2 py-2.5 text-slate-500 outline-none shrink-0 shadow-sm"
             >
               {VOICE_LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>{l.label}</option>
@@ -352,8 +338,8 @@ export default function ChatPlanner() {
               title="Hold to talk"
               className={`rounded-full shrink-0 transition-colors ${
                 listening
-                  ? "bg-red-500 hover:bg-red-600 text-white animate-pulse"
-                  : "bg-gray-100 hover:bg-gray-200 text-gray-600"
+                  ? "bg-rose-500 hover:bg-rose-600 text-white animate-pulse"
+                  : "bg-slate-100 hover:bg-slate-200 text-slate-600"
               }`}
             >
               <Mic className="w-4 h-4" />
@@ -365,7 +351,7 @@ export default function ChatPlanner() {
           type="submit"
           size="icon"
           disabled={loading}
-          className="rounded-full bg-green-600 hover:bg-green-700 text-white shrink-0"
+          className="rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shrink-0 shadow-md shadow-blue-500/30"
         >
           <Send className="w-4 h-4" />
         </Button>
@@ -374,11 +360,46 @@ export default function ChatPlanner() {
   );
 }
 
-function MessageBubble({ msg, onSend }: { msg: ChatMessage; onSend: (t: string) => void }) {
+function EmptyState({ onSend, onFocusInput }: { onSend: (t: string) => void; onFocusInput: () => void }) {
+  return (
+    <div className="flex flex-col items-center text-center gap-5 pt-4 pb-2 animate-in fade-in duration-500">
+      <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-sky-400 via-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
+        <Sparkles className="w-7 h-7 text-white" />
+      </div>
+      <div>
+        <h1 className="text-xl font-black text-slate-900 tracking-tight">Ask Weatherly anything</h1>
+        <p className="text-sm text-slate-500 max-w-sm mx-auto mt-1.5 leading-relaxed">
+          Real forecasts, comfort &amp; safety scoring, and nearby venues — for trips, events, and farming decisions.
+        </p>
+      </div>
+
+      <div className="w-full max-w-md">
+        <CurrentWeatherCard onAskAI={onFocusInput} />
+      </div>
+
+      <div className="w-full max-w-lg">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Try asking</div>
+        <div className="flex flex-wrap justify-center gap-2">
+          {SUGGESTIONS.map((s) => (
+            <button
+              key={s}
+              onClick={() => onSend(s)}
+              className="text-xs px-3 py-1.5 rounded-full border border-slate-200 bg-white/90 text-slate-600 hover:bg-white hover:border-blue-300 hover:text-blue-700 transition-colors shadow-sm"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MessageBubble({ msg }: { msg: ChatMessage }) {
   if (msg.role === "user") {
     return (
-      <div className="flex justify-end">
-        <div className="bg-blue-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[80%] text-sm leading-relaxed shadow-sm whitespace-pre-wrap">
+      <div className="flex justify-end animate-in fade-in slide-in-from-bottom-1 duration-300">
+        <div className="bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[80%] text-sm leading-relaxed shadow-md shadow-blue-500/20 whitespace-pre-wrap">
           {msg.text}
         </div>
       </div>
@@ -388,22 +409,26 @@ function MessageBubble({ msg, onSend }: { msg: ChatMessage; onSend: (t: string) 
   const isError = msg.role === "error";
 
   return (
-    <div className="flex justify-start">
-      <div className="max-w-[92%] space-y-2">
+    <div className="flex justify-start animate-in fade-in slide-in-from-bottom-1 duration-300">
+      <div className="max-w-[92%] space-y-2.5 w-full">
         <div
-          className={`flex items-start gap-2.5 rounded-2xl rounded-bl-sm px-4 py-3 text-sm leading-relaxed shadow-sm ${
+          className={`flex items-start gap-2.5 rounded-2xl rounded-bl-sm px-4 py-3 text-sm leading-relaxed ${
             isError
-              ? "bg-red-50 text-red-700 border border-red-200"
-              : "bg-white text-gray-800 border border-gray-200"
+              ? "bg-rose-50 text-rose-700 border border-rose-200"
+              : "bg-sky-50/70 text-slate-700 border border-sky-100"
           }`}
         >
-          {!isError && <Sparkles className="w-4 h-4 mt-0.5 shrink-0 text-blue-500" />}
+          {!isError && (
+            <span className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center shrink-0 mt-0.5">
+              <Sparkles className="w-3 h-3 text-white" />
+            </span>
+          )}
           <span className="whitespace-pre-wrap">{msg.text}</span>
         </div>
 
         {"data" in msg && msg.data && <AgentTrace data={msg.data} />}
         {"data" in msg && msg.data && msg.data.options.length > 0 && (
-          <OptionsGrid options={msg.data.options} agentData={msg.data} onSend={onSend} />
+          <OptionsGrid options={msg.data.options} agentData={msg.data} />
         )}
       </div>
     </div>
@@ -415,10 +440,10 @@ function AgentTrace({ data }: { data: AgentResponse }) {
   if (!data.steps?.length) return null;
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-white/80 overflow-hidden shadow-sm">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-3 py-2 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+        className="w-full flex items-center justify-between px-3 py-2 text-xs text-slate-500 hover:text-slate-700 transition-colors"
       >
         <span className="flex items-center gap-1.5">
           <Wand2 className="w-3.5 h-3.5 text-blue-500" />
@@ -427,13 +452,13 @@ function AgentTrace({ data }: { data: AgentResponse }) {
         {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
       </button>
       {open && (
-        <ol className="px-3 pb-3 space-y-1.5 border-t border-gray-100 pt-2">
+        <ol className="px-3 pb-3 space-y-1.5 border-t border-slate-100 pt-2">
           {data.steps.map((s, i) => (
-            <li key={i} className="text-xs text-gray-600 flex gap-2">
-              <span className="text-gray-300 shrink-0 font-mono">{i + 1}.</span>
+            <li key={i} className="text-xs text-slate-600 flex gap-2">
+              <span className="text-slate-300 shrink-0 font-mono-wx">{i + 1}.</span>
               <span>
-                <span className="text-gray-800 font-medium">{s.step}</span>
-                <span className="text-gray-400"> ({s.tool})</span>
+                <span className="text-slate-800 font-medium">{s.step}</span>
+                <span className="text-slate-400"> ({s.tool})</span>
                 {" — "}{s.detail}
               </span>
             </li>
@@ -444,7 +469,7 @@ function AgentTrace({ data }: { data: AgentResponse }) {
   );
 }
 
-function OptionsGrid({ options, agentData, onSend }: { options: AgentOption[]; agentData: AgentResponse; onSend: (t: string) => void }) {
+function OptionsGrid({ options, agentData }: { options: AgentOption[]; agentData: AgentResponse }) {
   return (
     <div className="space-y-3">
       {options.slice(0, 4).map((o, i) => (
@@ -457,19 +482,47 @@ function OptionsGrid({ options, agentData, onSend }: { options: AgentOption[]; a
   );
 }
 
+function ScoreGauge({ value }: { value: number }) {
+  const size = 58;
+  const stroke = 6;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const pct = Math.max(0, Math.min(100, value));
+  const dash = (pct / 100) * circumference;
+  const color = pct >= 75 ? "#0f9d63" : pct >= 55 ? "#f5a524" : "#e24c5d";
+
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="rgba(148,163,184,0.25)" strokeWidth={stroke} />
+        <circle
+          cx={size / 2} cy={size / 2} r={radius} fill="none"
+          stroke={color} strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={`${dash} ${circumference}`}
+          className="transition-all duration-700 ease-out"
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="font-mono-wx font-bold text-[15px] leading-none" style={{ color }}>{Math.round(pct)}</span>
+        <span className="text-[8px] text-slate-400 font-mono-wx leading-none mt-0.5">/100</span>
+      </div>
+    </div>
+  );
+}
+
 function ScoreBar({ label, value, icon, color }: { label: string; value: number; icon: React.ReactNode; color: string }) {
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-2">
       <span className={`shrink-0 ${color}`}>{icon}</span>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between mb-0.5">
-          <span className="text-[10px] text-gray-500">{label}</span>
-          <span className="text-[11px] font-bold text-gray-800">{value}</span>
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[11px] text-slate-500 font-medium">{label}</span>
+          <span className="text-xs font-bold text-slate-800 font-mono-wx">{value}</span>
         </div>
-        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
           <div
-            className={`h-full rounded-full transition-all ${
-              value >= 75 ? "bg-green-500" : value >= 55 ? "bg-amber-400" : "bg-red-400"
+            className={`h-full rounded-full transition-all duration-700 ${
+              value >= 75 ? "bg-emerald-500" : value >= 55 ? "bg-amber-400" : "bg-rose-400"
             }`}
             style={{ width: `${value}%` }}
           />
@@ -485,9 +538,13 @@ function OptionCard({ option: o, isTop, agentData }: { option: AgentOption; isTo
   const banner = gradeBanner[o.grade] ?? gradeBanner.C;
 
   return (
-    <Card className={`bg-white border-gray-200 p-3 gap-0 shadow-sm ${isTop ? "ring-2 ring-blue-500/20 border-blue-200" : ""}`}>
+    <Card
+      className={`bg-white/95 backdrop-blur-sm border-slate-200/80 p-0 gap-0 rounded-3xl overflow-hidden shadow-[0_10px_30px_-14px_rgba(30,64,175,0.35)] ${
+        isTop ? "ring-2 ring-amber-300/80" : ""
+      }`}
+    >
       {o.image_url && (
-        <div className="-mx-3 -mt-3 mb-2 h-28 overflow-hidden rounded-t-xl">
+        <div className="h-32 overflow-hidden">
           <img
             src={o.image_url}
             alt={o.location.split(",")[0]}
@@ -497,129 +554,135 @@ function OptionCard({ option: o, isTop, agentData }: { option: AgentOption; isTo
           />
         </div>
       )}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5 text-xs text-gray-500 truncate">
-          <MapPin className="w-3.5 h-3.5 shrink-0 text-blue-500" />
-          <span className="truncate font-semibold text-gray-800">{o.location.split(",")[0]}</span>
-          {isTop && (
-            <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full border border-blue-100 shrink-0">
-              Top pick
-            </span>
-          )}
+
+      <div className="p-4">
+        <div className="flex items-center justify-between mb-3 gap-2">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 truncate min-w-0">
+            <MapPin className="w-3.5 h-3.5 shrink-0 text-blue-500" />
+            <span className="truncate font-bold text-slate-900 text-[15px]">{o.location.split(",")[0]}</span>
+            {isTop && (
+              <span className="flex items-center gap-1 text-[10px] font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200 shrink-0">
+                <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500" /> Top pick
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <ScoreGauge value={o.score} />
+            <span className={`text-2xl font-black font-mono-wx ${gradeColor[o.grade] ?? "text-slate-600"}`}>{o.grade}</span>
+          </div>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0 ml-2">
-          <span className={`text-[10px] border px-1.5 py-0.5 rounded-full ${confidenceStyle[o.confidence] ?? confidenceStyle.low}`}>
+
+        <div className={`${banner.bg} rounded-2xl px-3.5 py-3 mb-3 flex items-center gap-3 text-white shadow-sm`}>
+          <img src={weather.icon} alt="" className="w-11 h-11 shrink-0 drop-shadow" />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-bold flex items-center gap-1.5">
+              <span>{banner.emoji}</span> {banner.text}
+            </div>
+            <div className="text-[11px] text-white/90 flex items-center gap-1.5 mt-0.5">
+              <Calendar className="w-3 h-3 shrink-0" />
+              <span className="truncate">{o.date} · {weather.description}</span>
+            </div>
+          </div>
+          <span className={`text-[10px] border px-2 py-0.5 rounded-full shrink-0 bg-white/15 border-white/30 text-white font-medium`}>
             {o.confidence === "high" ? "Forecast" : o.confidence === "medium" ? "Med. term" : "Climate est."}
           </span>
-          <span className={`text-lg font-black ${gradeColor[o.grade] ?? "text-gray-600"}`}>{o.grade}</span>
         </div>
+
+        <button
+          onClick={() => setShowAnalysis((v) => !v)}
+          className="w-full flex items-center justify-between text-xs text-blue-600 hover:text-blue-800 font-semibold mb-1 transition-colors py-1"
+        >
+          <span className="flex items-center gap-1.5"><Wand2 className="w-3.5 h-3.5" />Scores &amp; full analysis</span>
+          {showAnalysis ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
+
+        {showAnalysis && (
+          <div className="space-y-3 border-t border-slate-100 pt-3 animate-in fade-in duration-200">
+            <div className="space-y-2.5 bg-slate-50/70 rounded-xl p-3 border border-slate-100">
+              <ScoreBar label="Comfort" value={o.comfort} icon={<Heart className="w-3.5 h-3.5" />} color="text-pink-500" />
+              <ScoreBar label="Safety" value={o.safety} icon={<Shield className="w-3.5 h-3.5" />} color="text-blue-500" />
+              <ScoreBar label="Suitability" value={o.suitability} icon={<Star className="w-3.5 h-3.5" />} color="text-amber-500" />
+            </div>
+
+            <div className="grid grid-cols-4 gap-1.5">
+              {[
+                { label: "Feels", value: `${o.temp}°C`, icon: <Thermometer className="w-3.5 h-3.5" /> },
+                { label: "Rain", value: `${o.rain}mm`, icon: <Droplets className="w-3.5 h-3.5" /> },
+                { label: "Wind", value: `${o.wind}km/h`, icon: <Wind className="w-3.5 h-3.5" /> },
+                { label: "Humidity", value: `${o.humidity}%`, icon: <Cloud className="w-3.5 h-3.5" /> },
+              ].map(({ label, value, icon }) => (
+                <div key={label} className="bg-white border border-slate-200 rounded-xl px-1 py-2 text-center">
+                  <div className="flex justify-center text-blue-400 mb-1">{icon}</div>
+                  <div className="text-[9px] text-slate-400 uppercase tracking-wide font-medium">{label}</div>
+                  <div className="font-bold text-slate-800 font-mono-wx text-[13px] mt-0.5">{value}</div>
+                </div>
+              ))}
+            </div>
+
+            {o.confidence_label && (
+              <div className="flex items-start gap-1.5 text-[11px] text-slate-400">
+                <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>{o.confidence_label}</span>
+              </div>
+            )}
+
+            {agentData?.explanation && (
+              <p className="text-[12.5px] text-slate-700 leading-relaxed bg-blue-50 rounded-xl px-3 py-2.5 border border-blue-100">
+                {agentData.explanation}
+              </p>
+            )}
+
+            {o.positives.length > 0 && (
+              <div>
+                <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 font-bold mb-1.5 uppercase tracking-wide">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Strengths
+                </div>
+                <div className="space-y-1">
+                  {o.positives.map((p, i) => (
+                    <div key={i} className="text-[12.5px] text-emerald-900 bg-emerald-50/70 border-l-2 border-emerald-400 rounded-r-lg pl-2.5 pr-2 py-1.5">
+                      {p}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {o.risks.length > 0 && (
+              <div>
+                <div className="flex items-center gap-1.5 text-[11px] text-rose-600 font-bold mb-1.5 uppercase tracking-wide">
+                  <AlertTriangle className="w-3.5 h-3.5" /> Risks
+                </div>
+                <div className="space-y-1">
+                  {o.risks.map((r, i) => (
+                    <div key={i} className="text-[12.5px] text-rose-800 bg-rose-50/70 border-l-2 border-rose-400 rounded-r-lg pl-2.5 pr-2 py-1.5">
+                      {r}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {o.tips.length > 0 && (
+              <div>
+                <div className="flex items-center gap-1.5 text-[11px] text-blue-700 font-bold mb-1.5 uppercase tracking-wide">
+                  <Info className="w-3.5 h-3.5" /> Preparation Tips
+                </div>
+                <div className="space-y-1">
+                  {o.tips.map((t, i) => (
+                    <div key={i} className="text-[12.5px] text-blue-900 bg-blue-50/70 border-l-2 border-blue-400 rounded-r-lg pl-2.5 pr-2 py-1.5">
+                      {t}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {o.farming && <FarmingPanel farming={o.farming} />}
+        {o.online_venues && o.online_venues.length > 0 && <OnlineVenueList venues={o.online_venues} />}
+        {o.venues && o.venues.length > 0 && <VenueList venues={o.venues} />}
       </div>
-
-      <div className={`${banner.bg} rounded-xl px-3 py-2.5 mb-3 flex items-center gap-3 text-white shadow-sm`}>
-        <img src={weather.icon} alt="" className="w-11 h-11 shrink-0 drop-shadow" />
-        <div className="min-w-0">
-          <div className="text-sm font-bold flex items-center gap-1.5">
-            <span>{banner.emoji}</span> {banner.text}
-          </div>
-          <div className="text-[11px] text-white/90 flex items-center gap-1.5 mt-0.5">
-            <Calendar className="w-3 h-3 shrink-0" />
-            <span className="truncate">{o.date} · {weather.description}</span>
-          </div>
-        </div>
-        <div className="ml-auto text-right shrink-0">
-          <span className="text-base font-black">{o.score}</span>
-          <span className="text-[10px] text-white/80">/100</span>
-        </div>
-      </div>
-
-      <button
-        onClick={() => setShowAnalysis((v) => !v)}
-        className="w-full flex items-center justify-between text-[11px] text-blue-600 hover:text-blue-800 font-medium mb-1 transition-colors"
-      >
-        <span className="flex items-center gap-1"><Wand2 className="w-3 h-3" />Scores &amp; full analysis</span>
-        {showAnalysis ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-      </button>
-
-      {showAnalysis && (
-        <div className="space-y-2 border-t border-gray-100 pt-2">
-          <div className="space-y-1.5">
-            <ScoreBar label="Comfort" value={o.comfort} icon={<Heart className="w-3 h-3" />} color="text-pink-500" />
-            <ScoreBar label="Safety" value={o.safety} icon={<Shield className="w-3 h-3" />} color="text-blue-500" />
-            <ScoreBar label="Suitability" value={o.suitability} icon={<Star className="w-3 h-3" />} color="text-amber-500" />
-          </div>
-
-          <div className="grid grid-cols-4 gap-1 text-[10px]">
-            {[
-              { label: "Feels", value: `${o.temp}°C`, icon: <Thermometer className="w-2.5 h-2.5" /> },
-              { label: "Rain", value: `${o.rain}mm`, icon: <Droplets className="w-2.5 h-2.5" /> },
-              { label: "Wind", value: `${o.wind}km/h`, icon: <Wind className="w-2.5 h-2.5" /> },
-              { label: "Humidity", value: `${o.humidity}%`, icon: <Cloud className="w-2.5 h-2.5" /> },
-            ].map(({ label, value, icon }) => (
-              <div key={label} className="bg-gray-50 border border-gray-100 rounded-lg px-1 py-1.5 text-center">
-                <div className="flex justify-center text-gray-400 mb-0.5">{icon}</div>
-                <div className="text-gray-400">{label}</div>
-                <div className="font-semibold text-gray-800 mt-0.5">{value}</div>
-              </div>
-            ))}
-          </div>
-
-          {o.confidence_label && (
-            <div className="flex items-start gap-1 text-[10px] text-gray-400">
-              <Info className="w-3 h-3 shrink-0 mt-0.5" />
-              <span>{o.confidence_label}</span>
-            </div>
-          )}
-
-          {agentData?.explanation && (
-            <p className="text-[11px] text-gray-700 leading-relaxed bg-blue-50 rounded-lg px-2.5 py-2 border border-blue-100">
-              {agentData.explanation}
-            </p>
-          )}
-
-          {o.positives.length > 0 && (
-            <div>
-              <div className="flex items-center gap-1 text-[10px] text-green-700 font-semibold mb-1">
-                <CheckCircle2 className="w-3 h-3" /> Strengths
-              </div>
-              {o.positives.map((p, i) => (
-                <div key={i} className="text-[11px] text-green-800 flex gap-1.5 mb-0.5">
-                  <span className="text-green-400 shrink-0">✓</span>{p}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {o.risks.length > 0 && (
-            <div>
-              <div className="flex items-center gap-1 text-[10px] text-red-600 font-semibold mb-1">
-                <AlertTriangle className="w-3 h-3" /> Risks
-              </div>
-              {o.risks.map((r, i) => (
-                <div key={i} className="text-[11px] text-red-700 flex gap-1.5 mb-0.5">
-                  <span className="text-red-400 shrink-0">⚠</span>{r}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {o.tips.length > 0 && (
-            <div>
-              <div className="flex items-center gap-1 text-[10px] text-blue-700 font-semibold mb-1">
-                <Info className="w-3 h-3" /> Preparation Tips
-              </div>
-              {o.tips.map((t, i) => (
-                <div key={i} className="text-[11px] text-blue-800 flex gap-1.5 mb-0.5">
-                  <span className="text-blue-400 shrink-0">→</span>{t}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {o.farming && <FarmingPanel farming={o.farming} />}
-      {o.online_venues && o.online_venues.length > 0 && <OnlineVenueList venues={o.online_venues} />}
-      {o.venues && o.venues.length > 0 && <VenueList venues={o.venues} />}
     </Card>
   );
 }
@@ -698,37 +761,37 @@ function ReportActions({ options, agentData }: { options: AgentOption[]; agentDa
   };
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-[11px] font-medium text-gray-600">Planning Report</span>
+    <div className="rounded-2xl border border-slate-200 bg-white/80 p-3.5 shadow-sm">
+      <div className="flex items-center gap-2 mb-2.5">
+        <span className="text-xs font-semibold text-slate-600">Planning Report</span>
       </div>
       <div className="flex gap-2 flex-wrap">
         <button
           onClick={downloadReport}
-          className="flex items-center gap-1.5 text-[11px] bg-white border border-gray-200 rounded-full px-3 py-1.5 text-gray-700 hover:bg-gray-100 transition-colors shadow-sm font-medium"
+          className="flex items-center gap-1.5 text-xs bg-white border border-slate-200 rounded-full px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors shadow-sm font-medium"
         >
-          <Download className="w-3 h-3" /> Download Report
+          <Download className="w-3.5 h-3.5" /> Download Report
         </button>
         <button
           onClick={() => setShowEmail((v) => !v)}
-          className="flex items-center gap-1.5 text-[11px] bg-blue-600 rounded-full px-3 py-1.5 text-white hover:bg-blue-700 transition-colors shadow-sm font-medium"
+          className="flex items-center gap-1.5 text-xs bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full px-3.5 py-2 text-white hover:from-blue-700 hover:to-indigo-700 transition-colors shadow-sm font-medium"
         >
-          <Mail className="w-3 h-3" /> Email Report
+          <Mail className="w-3.5 h-3.5" /> Email Report
         </button>
       </div>
 
       {showEmail && (
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2.5 flex gap-2">
           <input
             value={emailInput}
             onChange={(e) => setEmailInput(e.target.value)}
             placeholder="your@email.com"
-            className="flex-1 text-xs border border-gray-300 rounded-full px-3 py-1.5 outline-none focus:border-blue-400"
+            className="flex-1 text-xs border border-slate-300 rounded-full px-3.5 py-2 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 transition-all"
           />
           <button
             onClick={sendEmail}
             disabled={sending}
-            className="text-xs bg-blue-600 text-white rounded-full px-3 py-1.5 disabled:opacity-50"
+            className="text-xs bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-full px-3.5 py-2 disabled:opacity-50 font-medium"
           >
             {sending ? "Sending…" : "Send"}
           </button>
@@ -736,61 +799,61 @@ function ReportActions({ options, agentData }: { options: AgentOption[]; agentDa
       )}
 
       {emailStatus && (
-        <div className="mt-1.5 text-[10px] text-gray-600">{emailStatus}</div>
+        <div className="mt-2 text-[11px] text-slate-600">{emailStatus}</div>
       )}
     </div>
   );
 }
 
 const farmingLabelStyles: Record<string, string> = {
-  "Excellent":            "bg-green-50 text-green-700 border-green-200",
-  "Good":                 "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "Excellent":            "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "Good":                 "bg-teal-50 text-teal-700 border-teal-200",
   "Fair — some concerns": "bg-amber-50 text-amber-700 border-amber-200",
-  "Poor — significant risks": "bg-red-50 text-red-700 border-red-200",
+  "Poor — significant risks": "bg-rose-50 text-rose-700 border-rose-200",
 };
 
 function FarmingPanel({ farming }: { farming: FarmingResult }) {
   const [open, setOpen] = useState(false);
-  const labelStyle = farmingLabelStyles[farming.suitability_label] ?? "bg-gray-50 text-gray-700 border-gray-200";
+  const labelStyle = farmingLabelStyles[farming.suitability_label] ?? "bg-slate-50 text-slate-700 border-slate-200";
 
   return (
-    <div className="mt-2 border border-green-100 rounded-xl bg-green-50/50 overflow-hidden">
+    <div className="mt-3 border border-emerald-100 rounded-2xl bg-emerald-50/40 overflow-hidden">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-3 py-2 text-[11px] text-green-800 hover:bg-green-50 transition-colors"
+        className="w-full flex items-center justify-between px-3.5 py-2.5 text-xs text-emerald-800 hover:bg-emerald-50 transition-colors"
       >
-        <span className="flex items-center gap-1.5 font-medium">
-          <Sprout className="w-3.5 h-3.5 text-green-600" />
+        <span className="flex items-center gap-1.5 font-semibold">
+          <Sprout className="w-4 h-4 text-emerald-600" />
           {farming.crop_name} — {farming.suitability_label}
-          <span className={`ml-1.5 px-1.5 py-0.5 rounded-full border text-[10px] font-semibold ${labelStyle}`}>
+          <span className={`ml-1.5 px-2 py-0.5 rounded-full border text-[10px] font-bold font-mono-wx ${labelStyle}`}>
             {farming.farming_score}/100
           </span>
         </span>
-        {open ? <ChevronUp className="w-3 h-3 text-green-600" /> : <ChevronDown className="w-3 h-3 text-green-600" />}
+        {open ? <ChevronUp className="w-3.5 h-3.5 text-emerald-600" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-600" />}
       </button>
 
       {open && (
-        <div className="px-3 pb-3 space-y-2 border-t border-green-100 pt-2">
+        <div className="px-3.5 pb-3.5 space-y-2.5 border-t border-emerald-100 pt-2.5">
           {farming.advice && (
-            <p className="text-[11px] text-green-900 italic">{farming.advice}</p>
+            <p className="text-[12.5px] text-emerald-900 italic">{farming.advice}</p>
           )}
           {farming.risks.length > 0 && (
             <div>
-              <div className="flex items-center gap-1 text-[10px] text-red-600 font-semibold mb-1">
-                <AlertTriangle className="w-3 h-3" /> Risks
+              <div className="flex items-center gap-1.5 text-[11px] text-rose-600 font-bold mb-1 uppercase tracking-wide">
+                <AlertTriangle className="w-3.5 h-3.5" /> Risks
               </div>
               {farming.risks.map((r, i) => (
-                <div key={i} className="text-[11px] text-red-700 bg-red-50 border border-red-100 rounded px-2 py-1 mb-0.5">{r}</div>
+                <div key={i} className="text-[12.5px] text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-2.5 py-1.5 mb-1">{r}</div>
               ))}
             </div>
           )}
           {farming.opportunities.length > 0 && (
             <div>
-              <div className="flex items-center gap-1 text-[10px] text-green-700 font-semibold mb-1">
-                <CheckCircle2 className="w-3 h-3" /> Opportunities
+              <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 font-bold mb-1 uppercase tracking-wide">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Opportunities
               </div>
               {farming.opportunities.map((o, i) => (
-                <div key={i} className="text-[11px] text-green-800 bg-green-50 border border-green-100 rounded px-2 py-1 mb-0.5">{o}</div>
+                <div key={i} className="text-[12.5px] text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-2.5 py-1.5 mb-1">{o}</div>
               ))}
             </div>
           )}
@@ -804,32 +867,32 @@ function OnlineVenueList({ venues }: { venues: OnlineVenueResult[] }) {
   const [open, setOpen] = useState(true);
 
   return (
-    <div className="mt-2 border-t border-gray-100 pt-2">
+    <div className="mt-3 border-t border-slate-100 pt-3">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between text-[11px] text-gray-500 hover:text-gray-700 transition-colors"
+        className="w-full flex items-center justify-between text-xs text-slate-500 hover:text-slate-700 transition-colors"
       >
         <span className="flex items-center gap-1.5">
-          <Globe className="w-3 h-3 text-blue-400" />
-          <span className="font-medium">{venues.length} venue recommendation{venues.length !== 1 ? "s" : ""} (web search)</span>
+          <Globe className="w-3.5 h-3.5 text-blue-400" />
+          <span className="font-semibold">{venues.length} venue recommendation{venues.length !== 1 ? "s" : ""} (web search)</span>
         </span>
-        {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
       </button>
 
       {open && (
-        <ul className="mt-2 space-y-2">
+        <ul className="mt-2.5 space-y-2">
           {venues.map((v, i) => (
-            <li key={i} className="flex items-start gap-2 p-2 bg-gray-50 rounded-lg border border-gray-100">
-              <Globe className="w-3.5 h-3.5 shrink-0 text-blue-500 mt-0.5" />
+            <li key={i} className="flex items-start gap-2.5 p-2.5 bg-slate-50/70 rounded-xl border border-slate-100">
+              <Globe className="w-4 h-4 shrink-0 text-blue-500 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <div className="text-[12px] font-medium text-gray-800">{v.name}</div>
+                <div className="text-[13px] font-semibold text-slate-800">{v.name}</div>
                 {v.description && (
-                  <div className="text-[11px] text-gray-500 mt-0.5">{v.description}</div>
+                  <div className="text-[12px] text-slate-500 mt-0.5">{v.description}</div>
                 )}
                 {v.url && (
                   <a href={v.url} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-[11px] text-blue-500 hover:text-blue-700 font-medium transition-colors mt-1">
-                    <ExternalLink className="w-2.5 h-2.5" /> Visit website
+                    className="flex items-center gap-1 text-[12px] text-blue-600 hover:text-blue-800 font-medium transition-colors mt-1 w-fit">
+                    <ExternalLink className="w-3 h-3" /> Visit website
                   </a>
                 )}
               </div>
@@ -842,56 +905,56 @@ function OnlineVenueList({ venues }: { venues: OnlineVenueResult[] }) {
 }
 
 const VENUE_TYPE_ICON: Record<string, React.ReactNode> = {
-  Hotel:            <Hotel className="w-3.5 h-3.5 shrink-0 text-indigo-500" />,
-  Resort:           <Hotel className="w-3.5 h-3.5 shrink-0 text-indigo-500" />,
-  Hostel:           <Hotel className="w-3.5 h-3.5 shrink-0 text-indigo-500" />,
-  Park:             <TreePine className="w-3.5 h-3.5 shrink-0 text-green-500" />,
-  "Nature Reserve": <TreePine className="w-3.5 h-3.5 shrink-0 text-green-500" />,
-  Garden:           <TreePine className="w-3.5 h-3.5 shrink-0 text-green-500" />,
+  Hotel:            <Hotel className="w-4 h-4 shrink-0 text-indigo-500" />,
+  Resort:           <Hotel className="w-4 h-4 shrink-0 text-indigo-500" />,
+  Hostel:           <Hotel className="w-4 h-4 shrink-0 text-indigo-500" />,
+  Park:             <TreePine className="w-4 h-4 shrink-0 text-emerald-500" />,
+  "Nature Reserve": <TreePine className="w-4 h-4 shrink-0 text-emerald-500" />,
+  Garden:           <TreePine className="w-4 h-4 shrink-0 text-emerald-500" />,
 };
 
 function VenueList({ venues }: { venues: VenueResult[] }) {
   const [open, setOpen] = useState(true);
 
   return (
-    <div className="mt-2 border-t border-gray-100 pt-2">
+    <div className="mt-3 border-t border-slate-100 pt-3">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between text-[11px] text-gray-500 hover:text-gray-700 transition-colors"
+        className="w-full flex items-center justify-between text-xs text-slate-500 hover:text-slate-700 transition-colors"
       >
         <span className="flex items-center gap-1.5">
-          <Navigation className="w-3 h-3 text-blue-400" />
-          <span className="font-medium">{venues.length} nearby venue{venues.length !== 1 ? "s" : ""} &amp; hotel{venues.length !== 1 ? "s" : ""}</span>
+          <Navigation className="w-3.5 h-3.5 text-blue-400" />
+          <span className="font-semibold">{venues.length} nearby venue{venues.length !== 1 ? "s" : ""} &amp; hotel{venues.length !== 1 ? "s" : ""}</span>
         </span>
-        {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
       </button>
 
       {open && (
-        <ul className="mt-2 space-y-2">
+        <ul className="mt-2.5 space-y-2">
           {venues.map((v, i) => (
-            <li key={i} className="flex items-start gap-2 p-2 bg-gray-50 rounded-lg border border-gray-100">
+            <li key={i} className="flex items-start gap-2.5 p-2.5 bg-slate-50/70 rounded-xl border border-slate-100">
               <span className="mt-0.5">
-                {VENUE_TYPE_ICON[v.type] ?? <MapPin className="w-3.5 h-3.5 shrink-0 text-gray-400" />}
+                {VENUE_TYPE_ICON[v.type] ?? <MapPin className="w-4 h-4 shrink-0 text-slate-400" />}
               </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[12px] font-medium text-gray-800">{v.name}</span>
-                  <span className="text-[10px] text-gray-400 bg-white border border-gray-200 px-1.5 py-0.5 rounded-full shrink-0">
+                  <span className="text-[13px] font-semibold text-slate-800">{v.name}</span>
+                  <span className="text-[10px] text-slate-400 font-mono-wx bg-white border border-slate-200 px-1.5 py-0.5 rounded-full shrink-0">
                     {v.type} · {v.distance_km} km
                   </span>
                 </div>
                 {v.address && (
-                  <div className="text-[10px] text-gray-400 mt-0.5 truncate">{v.address}</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5 truncate">{v.address}</div>
                 )}
                 <div className="flex items-center gap-3 mt-1">
                   <a href={v.osm_link} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-[11px] text-blue-500 hover:text-blue-700 font-medium transition-colors">
-                    <ExternalLink className="w-2.5 h-2.5" /> View on map
+                    className="flex items-center gap-1 text-[12px] text-blue-600 hover:text-blue-800 font-medium transition-colors">
+                    <ExternalLink className="w-3 h-3" /> View on map
                   </a>
                   {v.website && (
                     <a href={v.website} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-[11px] text-blue-500 hover:text-blue-700 font-medium transition-colors">
-                      <ExternalLink className="w-2.5 h-2.5" /> Website
+                      className="flex items-center gap-1 text-[12px] text-blue-600 hover:text-blue-800 font-medium transition-colors">
+                      <ExternalLink className="w-3 h-3" /> Website
                     </a>
                   )}
                 </div>

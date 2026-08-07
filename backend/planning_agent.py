@@ -252,7 +252,32 @@ def _get_gemini_client():
     return _gemini_client
 
 
+_gemini_quota_exhausted_until = 0.0
+
+
+def _gemini_quota_available() -> bool:
+    return time.monotonic() >= _gemini_quota_exhausted_until
+
+
+def _mark_gemini_exhausted(error_text: str) -> None:
+    """Free-tier quota errors (429 RESOURCE_EXHAUSTED) include a retryDelay —
+    honor it and skip calling Gemini again until then, instead of eating a
+    slow round-trip-to-429 on every single decision this loop makes. This is
+    what was turning a 1-request quota hit into every subsequent call in the
+    same request (and follow-up turns) paying the same latency again."""
+    global _gemini_quota_exhausted_until
+    if "RESOURCE_EXHAUSTED" not in error_text and "429" not in error_text:
+        return
+    delay = 60.0
+    m = re.search(r"retryDelay['\"]?\s*[:=]\s*['\"]?(\d+(?:\.\d+)?)s", error_text)
+    if m:
+        delay = float(m.group(1))
+    _gemini_quota_exhausted_until = time.monotonic() + delay
+
+
 def _call_gemini_json(prompt: str) -> dict | None:
+    if not _gemini_quota_available():
+        return None
     client = _get_gemini_client()
     if client is None:
         return None
@@ -267,6 +292,7 @@ def _call_gemini_json(prompt: str) -> dict | None:
         return json.loads(text) if text else None
     except Exception as e:
         print(f"Gemini JSON call failed: {e}")
+        _mark_gemini_exhausted(str(e))
         return None
 
 
@@ -276,6 +302,8 @@ _CHITCHAT_FALLBACK = "Hey! I'm Weatherly — ask me about the weather for a day 
 def _call_gemini_text(prompt: str) -> str | None:
     """Plain-text Gemini call (no JSON mime type) for short conversational
     replies — used for greetings/small-talk, not structured extraction."""
+    if not _gemini_quota_available():
+        return None
     client = _get_gemini_client()
     if client is None:
         return None
@@ -290,6 +318,7 @@ def _call_gemini_text(prompt: str) -> str | None:
         return text or None
     except Exception as e:
         print(f"Gemini text call failed: {e}")
+        _mark_gemini_exhausted(str(e))
         return None
 
 
@@ -317,6 +346,8 @@ def search_venues_online(location: str, activity: str) -> list[dict] | None:
     back to the OSM-based find_venues tool); returns [] if Gemini genuinely
     found nothing.
     """
+    if not _gemini_quota_available():
+        return None
     client = _get_gemini_client()
     if client is None:
         return None
@@ -354,6 +385,7 @@ def search_venues_online(location: str, activity: str) -> list[dict] | None:
         return cleaned
     except Exception as e:
         print(f"Gemini web venue search failed: {e}")
+        _mark_gemini_exhausted(str(e))
         return None
 
 
@@ -580,7 +612,18 @@ def extract_intent(message: str) -> dict:
         intent["start_date"] = None
         intent["end_date"] = None
     elif intent.get("is_planning_request") is False:
-        pass
+        # The LLM (especially the small local model) can misread a genuine
+        # planning request as small talk when it fails to spot the location/
+        # activity. Cross-check with the rule-based extractor before trusting
+        # that verdict — if it finds a concrete activity or location, this
+        # wasn't chitchat.
+        fallback = _extract_intent_rules(message)
+        if fallback.get("activity") or fallback.get("location"):
+            intent["is_planning_request"] = True
+            intent["casual_reply"] = None
+            for key in ("location", "date_phrase", "activity", "event_size"):
+                if not intent.get(key):
+                    intent[key] = fallback.get(key)
     else:
         fallback = _extract_intent_rules(message)
         for key in ("location", "date_phrase", "activity", "event_size"):

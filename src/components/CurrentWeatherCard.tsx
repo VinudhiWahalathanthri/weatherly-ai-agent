@@ -70,8 +70,8 @@ export default function CurrentWeatherCard({ onAskAI }: { onAskAI?: () => void }
 
   if (state === "idle" || state === "locating" || state === "loading") {
     return (
-      <Card className="bg-white border-gray-200 p-3 gap-0 shadow-sm mb-3 animate-pulse">
-        <div className="h-14 flex items-center justify-center text-xs text-gray-400">
+      <Card className="bg-white/90 border-slate-200/80 p-4 gap-0 rounded-2xl shadow-sm mb-3 animate-pulse">
+        <div className="h-14 flex items-center justify-center text-sm text-slate-400">
           Checking today&apos;s weather near you…
         </div>
       </Card>
@@ -80,16 +80,16 @@ export default function CurrentWeatherCard({ onAskAI }: { onAskAI?: () => void }
 
   if (state === "denied" || state === "error") {
     return (
-      <Card className="bg-white border-gray-200 p-3 gap-0 shadow-sm mb-3">
+      <Card className="bg-white/90 border-slate-200/80 p-4 gap-0 rounded-2xl shadow-sm mb-3">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-slate-500">
             Enable location to see today&apos;s weather here.
           </span>
           <button
             onClick={requestLocation}
-            className="flex items-center gap-1 text-[11px] bg-blue-600 text-white rounded-full px-3 py-1.5 hover:bg-blue-700 transition-colors shrink-0"
+            className="flex items-center gap-1.5 text-xs bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-full px-3.5 py-2 hover:from-blue-700 hover:to-indigo-700 transition-colors shrink-0 font-medium shadow-sm"
           >
-            <MapPinned className="w-3 h-3" /> Use my location
+            <MapPinned className="w-3.5 h-3.5" /> Use my location
           </button>
         </div>
       </Card>
@@ -101,38 +101,38 @@ export default function CurrentWeatherCard({ onAskAI }: { onAskAI?: () => void }
   const { icon, label } = weatherCodeToDisplay(weather.weather_code);
 
   return (
-    <Card className="bg-white border-gray-200 p-3 gap-0 shadow-sm mb-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+    <Card className="bg-white/90 border-slate-200/80 p-4 gap-0 rounded-2xl shadow-sm mb-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-3 min-w-0">
           {icon}
-          <div>
-            <div className="text-lg font-bold text-gray-900">
+          <div className="min-w-0">
+            <div className="text-xl font-black text-slate-900 font-mono-wx">
               {Math.round(weather.temp_c ?? 0)}°C
-              <span className="text-xs font-normal text-gray-400 ml-1.5">{label}</span>
+              <span className="text-xs font-sans font-normal text-slate-400 ml-1.5">{label}</span>
             </div>
-            <div className="text-[11px] text-gray-500">Right now, near you</div>
+            <div className="text-xs text-slate-500">Right now, near you</div>
           </div>
         </div>
         {onAskAI && (
           <button
             onClick={onAskAI}
-            className="text-[11px] bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full px-3 py-1.5 transition-colors shrink-0 font-medium"
+            className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full px-3.5 py-2 transition-colors shrink-0 font-medium"
           >
             Plan something
           </button>
         )}
       </div>
 
-      <div className="grid grid-cols-3 gap-1 text-[10px] mt-2.5">
+      <div className="grid grid-cols-3 gap-1.5 mt-3">
         {[
-          { label: "Feels", value: `${Math.round(weather.feels_like_c ?? weather.temp_c ?? 0)}°C`, icon: <Thermometer className="w-2.5 h-2.5" /> },
-          { label: "Humidity", value: `${Math.round(weather.humidity_pct ?? 0)}%`, icon: <Droplets className="w-2.5 h-2.5" /> },
-          { label: "Wind", value: `${Math.round(weather.wind_kmh ?? 0)}km/h`, icon: <Wind className="w-2.5 h-2.5" /> },
+          { label: "Feels", value: `${Math.round(weather.feels_like_c ?? weather.temp_c ?? 0)}°C`, icon: <Thermometer className="w-3.5 h-3.5" /> },
+          { label: "Humidity", value: `${Math.round(weather.humidity_pct ?? 0)}%`, icon: <Droplets className="w-3.5 h-3.5" /> },
+          { label: "Wind", value: `${Math.round(weather.wind_kmh ?? 0)}km/h`, icon: <Wind className="w-3.5 h-3.5" /> },
         ].map(({ label: l, value, icon: i }) => (
-          <div key={l} className="bg-gray-50 border border-gray-100 rounded-lg px-1 py-1.5 text-center">
-            <div className="flex justify-center text-gray-400 mb-0.5">{i}</div>
-            <div className="text-gray-400">{l}</div>
-            <div className="font-semibold text-gray-800 mt-0.5">{value}</div>
+          <div key={l} className="bg-slate-50 border border-slate-100 rounded-xl px-1 py-2 text-center">
+            <div className="flex justify-center text-blue-400 mb-1">{i}</div>
+            <div className="text-[10px] text-slate-400 uppercase tracking-wide font-medium">{l}</div>
+            <div className="font-bold text-slate-800 font-mono-wx text-[13px] mt-0.5">{value}</div>
           </div>
         ))}
       </div>

@@ -65,6 +65,37 @@
   font-family: "Lato";
 }
 
+.font-mono-wx {
+  font-family: "Jetbrains", ui-monospace, SFMono-Regular, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Soft "clear sky" atmosphere for the AI planning agent — replaces the flat slate backdrop. */
+.weatherly-atmosphere {
+  position: relative;
+  background-color: #f4f8ff;
+  background-image:
+    radial-gradient(ellipse 55% 40% at 12% 8%, rgba(125, 180, 255, 0.30), transparent 60%),
+    radial-gradient(ellipse 45% 32% at 88% 14%, rgba(253, 224, 148, 0.30), transparent 60%),
+    radial-gradient(ellipse 50% 40% at 80% 92%, rgba(167, 243, 208, 0.22), transparent 60%),
+    radial-gradient(ellipse 42% 32% at 8% 90%, rgba(191, 219, 254, 0.28), transparent 60%),
+    linear-gradient(180deg, #eef4ff 0%, #fbf8ef 100%);
+  background-repeat: no-repeat;
+  background-size: 140% 140%, 140% 140%, 140% 140%, 140% 140%, 100% 100%;
+  background-position: 0% 0%, 100% 0%, 100% 100%, 0% 100%, 0 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .weatherly-atmosphere {
+    animation: weatherly-drift 60s ease-in-out infinite alternate;
+  }
+}
+
+@keyframes weatherly-drift {
+  0%   { background-position: 0% 0%, 100% 0%, 100% 100%, 0% 100%, 0 0; }
+  100% { background-position: 8% 10%, 92% 8%, 92% 90%, 8% 92%, 0 0; }
+}
+
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
