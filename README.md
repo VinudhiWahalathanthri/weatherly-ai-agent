@@ -1,41 +1,19 @@
 # Weatherly
+Weatherly is an AI weather-planning assistant.All you have to do is Tell it what you want to do, a wedding, a beach day, a hike, a harvest and it pulls real climate/forecast data, scores the comfort/safety/suitability of your plan, explains its reasoning in plain language, and points you to real nearby venues.
 
-**Will it rain on my parade?** Weatherly is an AI weather-planning assistant.All you have to do is Tell it what you want to do, a wedding, a beach day, a hike, a harvest and it pulls real climate/forecast data, scores the comfort/safety/suitability of your plan, explains its reasoning in plain language, and points you to real nearby venues.
+Made with ❤️ By Vinudhi, Sinura, Venuki and Pulesh for IDEALIZE'26
 
 It has two front ends onto the same backend:
 
-- **Plan a Trip** — a conversational AI agent (chat interface).
-- **Advanced Search** — a manual mode where you pick a location on a map, an activity, and a date range yourself, and get the raw forecast + suitability charts.
+- **Plan a Trip** : a conversational AI agent (chat interface).
+- **Advanced Search** : a manual mode where you pick a location on a map, an activity, and a date range yourself, and get the raw forecast + suitability charts.
 
-----
+<img width="2560" height="3576" alt="localhost_5173_(Nest Hub Max)" src="https://github.com/user-attachments/assets/2ab6a037-cc93-43be-9656-0a984c7b67fe" />
 
-## Table of contents
+<img width="1483" height="928" alt="image" src="https://github.com/user-attachments/assets/14aa3850-4c85-48b0-967b-d9502644abba" />
 
-- [Weatherly](#weatherly)
-  - [Table of contents](#table-of-contents)
-  - [Features](#features)
-    - [🤖 AI Planning Agent (`/agent/chat`)](#-ai-planning-agent-agentchat)
-    - [🗺️ Advanced Search (manual mode)](#️-advanced-search-manual-mode)
-  - [How it works — data \& AI sources](#how-it-works--data--ai-sources)
-    - [The LLM layer — Gemini, Ollama, and the offline fallback](#the-llm-layer--gemini-ollama-and-the-offline-fallback)
-  - [Prerequisites](#prerequisites)
-  - [Setup](#setup)
-    - [1. Frontend](#1-frontend)
-    - [2. Backend](#2-backend)
-    - [3. Ollama (optional, for local/offline AI)](#3-ollama-optional-for-localoffline-ai)
-    - [4. Environment variables](#4-environment-variables)
-    - [5. Telegram bot (optional)](#5-telegram-bot-optional)
-  - [Running the full project](#running-the-full-project)
-  - [Project structure](#project-structure)
-  - [Licensing](#licensing)
-
----
 
 ## Features
-
-### 🤖 AI Planning Agent (`/agent/chat`)
-
-This is not a single prompt piped to an LLM — it's a real tool-using agent that runs a **decide → act → observe** loop:
 
 - **Understands your request in plain English** — location, date/date phrase, activity, and event size are extracted from free text (e.g. *"Can I organize a wedding in Kandy next month?"*).
 - **Plans a strategy** based on what you're actually asking:
@@ -50,10 +28,10 @@ This is not a single prompt piped to an LLM — it's a real tool-using agent tha
 - **Real nearby venues** — hotels, event venues, parks, and attractions near your recommended location/date, pulled from live map data, plus a web-searched shortlist of named venues when relevant.
 - **Destination photos** — a real photo of the recommended place, when one is available.
 - **Downloadable & emailable reports** — turn any recommendation into a Markdown/HTML report you can download or have emailed to you.
-- **Voice input** — hold the mic button and speak your request (English, Sinhala, or Tamil).
+- **Voice input** — hold the mic button and speak your request in English
 - **Telegram bot** — the same agent, reachable from Telegram (see [`telegram_bot.py`](./telegram_bot.py)).
 
-### 🗺️ Advanced Search (manual mode)
+### Advanced Search (manual mode)
 
 For when you want to drive directly instead of asking:
 
@@ -66,11 +44,9 @@ For when you want to drive directly instead of asking:
 
 ## How it works — data & AI sources
 
-Weatherly deliberately layers **free, keyless, or self-hostable** data sources so it works out of the box with zero paid setup, while still supporting better cloud options if you have them.
-
 | Layer | Source | Used for |
 |---|---|---|
-| **Historical climate data** | [NASA POWER API](https://power.larc.nasa.gov/) | ~20 years of daily temperature, rainfall, wind, humidity, and cloud data for any lat/lon on Earth — the backbone for long-range questions ("next month", "6 months from now"). Public domain, no API key. |
+| **Historical climate data** | [NASA POWER API](https://power.larc.nasa.gov/) 
 | **Long-range forecasting** | [Prophet](https://facebook.github.io/prophet/) (Meta's time-series library) | Projects NASA POWER's historical climatology forward to estimate what a *future* date is likely to look like, since no forecast model predicts actual weather that far out. |
 | **Near-term live forecast** | [Open-Meteo API](https://open-meteo.com/) | Real forecast data (not climatology) for "today", "tomorrow", "this weekend" — anything within ~16 days. Free, keyless. |
 | **Suitability classification** | Custom `RandomForestClassifier` (scikit-learn), trained via [`backend/train_model.py`](./backend/train_model.py) on [`backend/train_data.csv`](./backend/train_data.csv) | A trained ML model that classifies raw weather conditions + activity type into a suitability label, feeding into the scoring engine. |
@@ -80,28 +56,21 @@ Weatherly deliberately layers **free, keyless, or self-hostable** data sources s
 | **Venue discovery** | [OpenStreetMap Overpass API](https://overpass-api.de/) | Finds real hotels, event venues, parks, and attractions near a location — free, no key. |
 | **Map tiles** | [Leaflet](https://leafletjs.com/) + OpenStreetMap tiles | Powers the Advanced Search map — no Google Maps key required. |
 | **Destination photos** | Wikipedia REST Summary API | Best-effort photo lookup for the recommended place. |
-| **Natural-language understanding** (intent extraction + agent decisions) | **Gemini** → **local Ollama model** → **rule-based extractor**, in that order | See below. |
+| **Natural-language understanding** (intent extraction + agent decisions) | **Gemini** → **local Ollama model** → **rule-based extractor**, in that order 
 
-### The LLM layer — Gemini, Ollama, and the offline fallback
+<img width="1880" height="972" alt="Screenshot 2026-08-07 184538" src="https://github.com/user-attachments/assets/a5fb69d1-6a33-4a4d-ba78-2fc03711ede6" />
 
-The agent's "brain" (turning your sentence into structured intent, and deciding what to do at each step of its reasoning loop) tries three tiers, in order, so the app **always works even with zero cloud setup**:
+<img width="551" height="923" alt="Screenshot 2026-08-07 192301" src="https://github.com/user-attachments/assets/346526a8-d359-4185-9bd9-dfb00e07da41" />
 
-1. **Google Gemini** (cloud) — used first if `GEMINI_API_KEY` is set. Fastest and most reliable at structured JSON output.
-2. **Local Ollama model** (offline, free) — if Gemini isn't configured, quota-exhausted, or errors, the backend automatically calls a locally running [Ollama](https://ollama.com/) model instead (configured as `qwen3.5` in `backend/planning_agent.py`). This needs Ollama installed and running on your machine — see [setup below](#3-ollama-optional-for-localoffline-ai).
-3. **Rule-based extractor** (always available) — if neither an LLM is configured nor reachable, a lightweight regex/keyword-based fallback keeps the agent working, just with less nuanced understanding.
-
-You don't need to configure anything to run the project — the fallback chain handles it — but installing Ollama (or setting a Gemini key) noticeably improves how well the agent understands nuanced requests.
-
----
+<img width="387" height="921" alt="Screenshot 2026-08-07 192248" src="https://github.com/user-attachments/assets/5dfa0a09-97d8-42ce-bb3e-3a8c94cc54dd" />
 
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) (for the frontend)
 - [Python](https://www.python.org/) (for the backend)
 - [pip](https://pip.pypa.io/en/stable/)
-- [virtualenv](https://virtualenv.pypa.io/en/latest/) (or Python's built-in `venv`, used below)
+- [virtualenv](https://virtualenv.pypa.io/en/latest/)
 - **[Ollama](https://ollama.com/)** — optional but recommended. Without it (and without a Gemini key), the agent still runs on the rule-based fallback, but understands requests less flexibly.
-
 ---
 
 ## Setup
@@ -139,9 +108,9 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-The backend runs at `http://127.0.0.1:8000`. The Vite dev server proxies `/predict`, `/agent`, `/health`, and `/weather` requests to it, so the frontend never needs CORS or a hardcoded backend URL in dev.
+The backend runs at `http://127.0.0.1:8000`. 
 
-### 3. Ollama (optional, for local/offline AI)
+### 3. Ollama
 
 This step is what makes the AI agent understand free-text requests well **without needing a cloud API key**.
 
@@ -153,41 +122,7 @@ This step is what makes the AI agent understand free-text requests well **withou
    ollama pull qwen3.5
    ```
 
-4. That's it — no code changes needed. On each request, the backend checks `http://localhost:11434/api/tags` for an installed model matching that name and uses it automatically if Gemini isn't configured.
-
-> If you'd rather use a different local model (e.g. one you already have pulled, like `llama3` or `mistral`), just change `OLLAMA_MODEL` in `backend/planning_agent.py` to match its exact tag.
-
-If Ollama isn't installed or isn't running, the backend silently skips it and falls back to the rule-based extractor — nothing breaks.
-
-### 4. Environment variables
-
-Weatherly uses three separate `.env` files. None are required to run the app — they unlock optional/better capabilities.
-
-**Root `.env`** (copy from [`.env.example`](./.env.example)) — used by `telegram_bot.py`:
-
-```bash
-TELEGRAM_TOKEN=your-telegram-bot-token   # only needed if running the Telegram bot
-WEATHERLY_API_URL=http://localhost:8000  # defaults to this if unset
-VITE_GOOGLE_MAPS_API_KEY=...             # currently unused — Advanced Search's map runs on free Leaflet/OpenStreetMap tiles instead. Safe to leave blank.
-```
-
-**`backend/.env`** (copy from [`backend/.env.example`](./backend/.env.example)):
-
-```bash
-# Optional — enables the fastest/most reliable LLM tier (see the LLM layer above).
-# Get a free key at https://aistudio.google.com/apikey
-GEMINI_API_KEY=your-gemini-api-key-here
-GEMINI_MODEL=gemini-3.5-flash
-
-# Optional — only needed to actually send "Email Report" from the chat UI.
-# Without these, emailing falls back to offering a download instead.
-SMTP_HOST=smtp.example.com
-SMTP_PORT=587
-SMTP_USER=you@example.com
-SMTP_PASS=your-smtp-password
-```
-
-### 5. Telegram bot (optional)
+### 5. Telegram bot
 
 To reach the same AI agent from Telegram:
 
@@ -199,52 +134,4 @@ To reach the same AI agent from Telegram:
    python telegram_bot.py
    ```
 
----
 
-## Running the full project
-
-With the backend (`uvicorn main:app --reload`) and frontend (`npm run dev`) both running, open `http://localhost:5173` in your browser. Everything else — NASA/Open-Meteo data, geocoding, venue search, and the LLM fallback chain — is wired up automatically.
-
----
-
-## Project structure
-
-```
-project-root/
-│
-├── src/
-│   ├── components/
-│   │   ├── ChatPlanner.tsx        # AI Planning Agent chat UI
-│   │   ├── CurrentWeatherCard.tsx # "Weather right now" card (geolocation-based)
-│   │   ├── HomeContent.tsx        # Advanced Search (manual mode) UI
-│   │   └── NavigationBar.tsx
-│   └── ...
-├── public/
-├── package.json
-│
-├── backend/
-│   ├── main.py               # FastAPI routes (/predict, /agent/chat, /weather/now, reports)
-│   ├── agent.py               # The agent: planner, tools, decision engine, memory
-│   ├── planning_agent.py      # Intent extraction (Gemini → Ollama → rule-based), geocoding, date resolution
-│   ├── forecasting.py         # NASA POWER + Prophet + ML pipeline (tool)
-│   ├── live_weather.py        # Open-Meteo near-term forecast (tool)
-│   ├── scoring_engine.py      # Comfort/Safety/Suitability scoring per activity
-│   ├── farming.py             # Crop-specific weather suitability & risk
-│   ├── venue_discovery.py     # OpenStreetMap Overpass venue search
-│   ├── images.py              # Wikipedia destination photo lookup
-│   ├── report_generator.py    # Markdown/HTML planning report builder
-│   ├── train_model.py         # Trains the ML suitability classifier
-│   ├── activity_suitability_model.pkl / activity_encoder.pkl
-│   └── requirements.txt
-│
-├── telegram_bot.py            # Telegram front end for the same agent
-├── LICENSES.md
-├── .env.example
-└── README.md
-```
-
-----
-
-## Licensing
-
-Third-party tool/model/API licensing (NASA, Open-Meteo, OpenStreetMap, Ollama-served models, and all libraries) is documented in [`LICENSES.md`](./LICENSES.md) — review it before deployment or submission.
