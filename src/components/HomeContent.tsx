@@ -72,6 +72,7 @@ import ClearIcon from "@/assets/icons/day.svg";
 import WindIcon from "@/assets/icons/rainy-1.svg";
 import Hero from "./ui/Hero";
 import Footer from "./ui/footer";
+import { API_BASE } from "@/lib/api";
 
 export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -93,6 +94,9 @@ export default function App() {
   const [lon, setLon] = useState<number | null>(null);
 
   const [progress, setProgress] = useState(0);
+
+  const [tips, setTips] = useState<string[]>([]);
+  const [tipsLoading, setTipsLoading] = useState(false);
 
   const selectedVariables = {
     T2M: true,
@@ -172,7 +176,7 @@ export default function App() {
 
     try {
       setLoading(true);
-      const response = await fetch("/predict", {
+      const response = await fetch(`${API_BASE}/predict`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -192,11 +196,48 @@ export default function App() {
         event: selectedActivity,
         results: responseData,
       });
+
+      const dayWeather = responseData?.predictions?.[startDate];
+      if (dayWeather) {
+        fetchTips(dayWeather);
+      }
     } catch (err) {
       setError(`Prediction failed: ${(err as Error).message}`);
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fetchTips = async (dayWeather: any) => {
+    setTips([]);
+    setTipsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/tips`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          location: searchQuery || "the selected location",
+          date: startDate,
+          activity: selectedActivity,
+          weather: dayWeather,
+          suitability_status: dayWeather?.suitability_status || "",
+        }),
+      });
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      const tipsData = await res.json();
+      setTips(tipsData.tips || []);
+    } catch (err) {
+      console.error("Failed to fetch AI tips:", err);
+      setTips([
+        "Check the weather forecast before heading out",
+        "Stay hydrated and carry extra water",
+        "Wear comfortable clothing and sunscreen",
+        "Have a backup plan in case of emergencies",
+      ]);
+    } finally {
+      setTipsLoading(false);
     }
   };
 
@@ -682,12 +723,10 @@ export default function App() {
                               Tips & Reminders
                             </h3>
                             <div className="space-y-3">
-                              {[
-                                "Have a backup plan in case of emergencies",
-                                "Stay hydrated and carry extra water",
-                                "Wear comfortable clothing and sunscreen",
-                                "Check the weather forecast before heading out",
-                              ].map((tip, idx) => (
+                              {tipsLoading && (
+                                <p className="text-gray-400 text-sm italic">Generating personalized tips...</p>
+                              )}
+                              {!tipsLoading && tips.map((tip, idx) => (
                                 <motion.div
                                   key={idx}
                                   initial={{ opacity: 0, x: -20 }}

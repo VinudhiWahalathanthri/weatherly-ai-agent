@@ -13,6 +13,8 @@ from forecasting import run_prediction
 from live_weather import fetch_current_conditions
 from agent import run_agent
 from report_generator import generate_report, report_to_html
+from planning_agent import generate_tips
+from scoring_engine import compute_scores
 
 app = FastAPI(title="Weatherly AI Weather Planning API")
 
@@ -41,6 +43,14 @@ class WeatherRequest(BaseModel):
     endDate: str
     activity: str
     variables: dict
+
+
+class TipsRequest(BaseModel):
+    location: str
+    date: str
+    activity: str
+    weather: dict
+    suitability_status: str = ""
 
 
 class AgentChatRequest(BaseModel):
@@ -84,6 +94,23 @@ def predict_weather(req: WeatherRequest):
     start_date = datetime.fromisoformat(req.startDate.replace("Z", "").replace("T", " "))
     end_date = datetime.fromisoformat(req.endDate.replace("Z", "").replace("T", " "))
     return run_prediction(req.lat, req.lon, start_date, end_date, req.activity)
+
+
+@app.post("/tips")
+def generate_tips_endpoint(req: TipsRequest):
+    """AI-generated "Tips & Reminders" for the Advanced Search result — tailored to
+    the actual location/date/activity/forecast instead of a fixed static list.
+    Falls back to the activity profile's static tips if Gemini is unavailable."""
+    tips = generate_tips(req.location, req.date, req.activity, req.weather, req.suitability_status)
+    if tips:
+        return {"tips": tips, "source": "ai"}
+    fallback = compute_scores(req.weather, req.activity).get("tips") or [
+        "Check the weather forecast before heading out",
+        "Stay hydrated and carry extra water",
+        "Wear comfortable clothing and sunscreen",
+        "Have a backup plan in case of emergencies",
+    ]
+    return {"tips": fallback[:4], "source": "fallback"}
 
 
 @app.post("/agent/chat")

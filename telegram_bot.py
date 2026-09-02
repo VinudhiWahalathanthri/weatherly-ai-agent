@@ -1,219 +1,126 @@
 """
 Weatherly Telegram Bot
 -----------------------
-Connects Telegram users to the Weatherly AI planning agent.
-Run this alongside the FastAPI backend (uvicorn main:app in /backend).
+A thin Telegram front-end onto the same AI planning agent used by the web app.
+Every message is forwarded to the FastAPI backend's /agent/chat endpoint
+(see backend/agent.py) and the reply is sent back as-is — no logic lives here.
 
-Usage:
-  Set TELEGRAM_TOKEN in your .env file, then run:
-  python telegram_bot.py
+Requires the FastAPI backend to already be running (uvicorn main:app, in /backend).
+
+Setup:
+  1. Create a bot with @BotFather on Telegram and copy its token.
+  2. Put TELEGRAM_TOKEN=<token> in a .env file at the project root
+     (optionally also BACKEND_URL if the backend isn't at the default).
+  3. Run: python telegram_bot.py
 """
 
-import asyncio
-import html
 import os
-import logging
+
 import requests
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
-    filters, ContextTypes,
-)
 from dotenv import load_dotenv
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 load_dotenv()
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://127.0.0.1:8000")
 
-WEATHERLY_API = os.getenv("WEATHERLY_API_URL", "http://localhost:8000")
-
-user_sessions: dict[str, str] = {}
-
-
-def call_agent(user_id: str, message: str) -> dict:
-    """POST to the Weatherly planning agent and return the full response."""
-    payload = {
-        "message": message,
-        "session_id": user_sessions.get(user_id),
-    }
-    resp = requests.post(f"{WEATHERLY_API}/agent/chat", json=payload, timeout=120)
-    resp.raise_for_status()
-    return resp.json()
-
-
-def format_suitability(status: str) -> str:
-    icons = {
-        "Suitable": "✅", "Suitable (Fallback)": "✅",
-        "Caution": "⚠️", "Caution (ML Error)": "⚠️",
-        "Unsuitable": "❌", "Unsuitable (High Risk)": "❌",
-    }
-    return icons.get(status, "🔵")
-
-
-def build_reply(data: dict) -> tuple[str, InlineKeyboardMarkup | None]:
-    """Turn the agent JSON into a nicely formatted Telegram message.
-
-    Uses HTML parse mode (not Telegram's legacy Markdown) — place names,
-    addresses, and explanation text routinely contain '_', '*', '(', ')', '.'
-    which break Markdown's parser (400 "can't parse entities"). HTML's escaping
-    surface is just &, <, > (one html.escape() call), far less error-prone than
-    hand-escaping every Markdown special character in dynamic content.
-    """
-    esc = html.escape
-    lines = [f"🌤 <b>Weatherly AI</b>\n\n{esc(data['reply'])}"]
-
-    options = data.get("options", [])
-    if options:
-        lines.append("\n<b>📊 Top Results:</b>")
-        for i, opt in enumerate(options[:3]):
-            icon = format_suitability(opt["suitability_status"])
-            conf_label = opt.get("confidence_label")
-            conf_line = f"\n  <i>{esc(conf_label)}</i>" if conf_label else ""
-            lines.append(
-                f"\n{icon} <b>{esc(opt['location'].split(',')[0])}</b> — {esc(opt['date'])}\n"
-                f"  Score: {opt['score']}/100  |  "
-                f"🌡 {opt['temp']}°C  💧 {opt['rain']}mm  💨 {opt['wind']}km/h\n"
-                f"  <i>{esc(', '.join(opt['reasons'][:2]))}</i>{conf_line}"
-            )
-
-    buttons = []
-    if options and options[0].get("venues"):
-        lines.append(f"\n<b>📍 Nearby venues ({esc(options[0]['location'].split(',')[0])}):</b>")
-        for venue in options[0]["venues"][:4]:
-            name_short = venue["name"][:28]
-            lines.append(f"  • {esc(name_short)} ({esc(venue['type'])}, {venue['distance_km']} km)")
-            buttons.append([
-                InlineKeyboardButton(
-                    f"🗺 {name_short}",
-                    url=venue["osm_link"],
-                )
-            ])
-            if venue.get("website"):
-                buttons[-1].append(
-                    InlineKeyboardButton("🌐 Website", url=venue["website"])
-                )
-
-    keyboard = InlineKeyboardMarkup(buttons) if buttons else None
-    return "\n".join(lines), keyboard
+# Maps a Telegram chat to the agent's session_id, so follow-ups
+# ("what about next week instead?") keep working like they do in the web chat.
+CHAT_SESSIONS: dict[int, str] = {}
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "👋 <b>Welcome to Weatherly AI!</b>\n\n"
-        "I help you plan days out, trips, events, and farming activities using weather intelligence.\n\n"
-        "<b>Try asking:</b>\n"
-        "• <i>What's the weather like in Colombo today?</i>\n"
-        "• <i>Is tomorrow good for a beach day in Galle?</i>\n"
-        "• <i>Can I organize a wedding in Kandy next month?</i>\n"
-        "• <i>Is it safe to harvest rice in Colombo next week?</i>\n\n"
-        "Just type your question! 🌤",
-        parse_mode="HTML",
+        "Hey! I'm Weatherly. Tell me what you're planning — a wedding, a hike, a "
+        "beach day, a harvest — and where/when, and I'll check the weather and "
+        "score whether it's a good idea."
     )
 
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "<b>Weatherly AI — What I can do:</b>\n\n"
-        "🌤 <b>Day &amp; Trip Planning</b>\n"
-        "  Real live weather for today/this week, plus longer-range trip planning\n\n"
-        "🎉 <b>Event Planning</b>\n"
-        "  Wedding venues, outdoor parties, festivals, sports tournaments\n\n"
-        "🌾 <b>Farming Advice</b>\n"
-        "  Planting windows, harvest timing, irrigation scheduling, frost alerts\n\n"
-        "📍 <b>Venue &amp; Hotel Links</b>\n"
-        "  I find real nearby venues with map links automatically\n\n"
-        "💬 <b>I remember context</b> — ask follow-ups like 'what about next week instead?'\n\n"
-        "Type anything to get started!",
-        parse_mode="HTML",
-    )
-
-
-async def _typing_keepalive(bot, chat_id: int, stop_event: asyncio.Event) -> None:
-    """Telegram's typing indicator auto-expires after ~5s, but the agent call
-    can take 10-90s — resend it every 4s until the agent call resolves so the
-    chat doesn't go quiet mid-response (which reads as broken)."""
-    while not stop_event.is_set():
-        try:
-            await bot.send_chat_action(chat_id, "typing")
-        except Exception:
-            pass
-        try:
-            await asyncio.wait_for(stop_event.wait(), timeout=4.0)
-        except asyncio.TimeoutError:
-            pass
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    CHAT_SESSIONS.pop(update.effective_chat.id, None)
+    await update.message.reply_text("Started a fresh conversation.")
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = str(update.effective_user.id)
-    text = update.message.text
     chat_id = update.effective_chat.id
+    message_text = update.message.text or ""
+    session_id = CHAT_SESSIONS.get(chat_id)
 
-    stop_event = asyncio.Event()
-    keepalive_task = asyncio.create_task(_typing_keepalive(context.bot, chat_id, stop_event))
+    await update.message.chat.send_action("typing")
+
     try:
-        data = await asyncio.to_thread(call_agent, user_id, text)
-        user_sessions[user_id] = data["session_id"]
-        reply, keyboard = build_reply(data)
-
-        options = data.get("options", [])
-        top_image = options[0].get("image_url") if options else None
-        if top_image:
-            try:
-                await update.message.reply_photo(
-                    photo=top_image,
-                    caption=f"📍 {options[0]['location'].split(',')[0]}",
-                )
-            except Exception as img_err:
-                logging.warning("Failed to send destination photo: %s", img_err)
-
-        await update.message.reply_text(
-            reply,
-            parse_mode="HTML",
-            reply_markup=keyboard,
-            disable_web_page_preview=True,
+        resp = requests.post(
+            f"{BACKEND_URL}/agent/chat",
+            json={"message": message_text, "session_id": session_id},
+            timeout=60,
         )
-    except requests.exceptions.Timeout:
-        await update.message.reply_text(
-            "⏱️ That's taking longer than expected — please try again in a moment."
-        )
-    except requests.exceptions.ConnectionError:
-        await update.message.reply_text(
-            "⚠️ The Weatherly backend isn't reachable right now.\n"
-            "Please make sure it's running on port 8000."
-        )
+        resp.raise_for_status()
+        data = resp.json()
     except Exception as e:
-        logging.error("Agent error: %s", e)
         await update.message.reply_text(
-            "Something went wrong — please try again or rephrase your question."
+            f"Sorry, I couldn't reach the weather backend ({e}). "
+            f"Make sure it's running at {BACKEND_URL}."
         )
-    finally:
-        stop_event.set()
-        await keepalive_task
+        return
+
+    CHAT_SESSIONS[chat_id] = data.get("session_id", session_id)
+    reply = data.get("reply") or "Sorry, I didn't get a usable reply — try rephrasing."
+
+    options = data.get("options") or []
+    if options:
+        reply += _format_venues(options[0])
+
+    await update.message.reply_text(reply, parse_mode="Markdown", disable_web_page_preview=True)
 
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logging.error("Update caused error: %s", context.error)
+def _format_venues(winner: dict) -> str:
+    """The web chat renders venues as separate cards (see ChatPlanner.tsx);
+    Telegram only gets the plain-text reply, so fold the same data in as text
+    instead of silently dropping it."""
+    sections = []
+
+    online_venues = winner.get("online_venues") or []
+    if online_venues:
+        lines = [f"🌐 *Venue recommendations:*"]
+        for v in online_venues[:4]:
+            line = f"• *{v.get('name', 'Unknown')}*"
+            if v.get("description"):
+                line += f" — {v['description']}"
+            if v.get("url"):
+                line += f" ([link]({v['url']}))"
+            lines.append(line)
+        sections.append("\n".join(lines))
+
+    venues = winner.get("venues") or []
+    if venues:
+        lines = [f"📍 *Nearby venues & hotels:*"]
+        for v in venues[:4]:
+            line = f"• *{v.get('name', 'Unknown')}* ({v.get('type', 'Place')}, {v.get('distance_km', '?')} km)"
+            if v.get("osm_link"):
+                line += f" — [map]({v['osm_link']})"
+            lines.append(line)
+        sections.append("\n".join(lines))
+
+    return ("\n\n" + "\n\n".join(sections)) if sections else ""
 
 
 def main() -> None:
-    token = os.getenv("TELEGRAM_TOKEN")
-    if not token:
-        raise RuntimeError(
-            "TELEGRAM_TOKEN not set. Add it to your .env file:\n"
-            "  TELEGRAM_TOKEN=your-token-here"
+    if not TELEGRAM_TOKEN:
+        raise SystemExit(
+            "TELEGRAM_TOKEN is not set. Add it to a .env file at the project root "
+            "(see README's Telegram bot setup section)."
         )
 
-    app = Application.builder().token(token).build()
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("reset", reset))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_error_handler(error_handler)
 
-    print("✅ Weatherly Telegram bot is running. Press Ctrl+C to stop.")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    print(f"Weatherly Telegram bot running, forwarding to {BACKEND_URL}...")
+    app.run_polling()
 
 
 if __name__ == "__main__":
