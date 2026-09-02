@@ -180,13 +180,13 @@ def _run_prediction_climatology(lat: float, lon: float, start_date: datetime, en
     days_ahead = (start_date.date() - datetime.now().date()).days
     if days_ahead <= 3:
         confidence = "high"
-        confidence_label = "Short-term forecast blend (high confidence)"
+        confidence_label = "Short-term forecast blend"
     elif days_ahead <= 14:
         confidence = "medium"
-        confidence_label = "Medium-term climate estimate (moderate confidence)"
+        confidence_label = "Medium-term climate estimate"
     else:
         confidence = "low"
-        confidence_label = "Long-term climate estimate based on 20yr historical avg (low precision)"
+        confidence_label = "Long-term climate estimate based on 20yr historical avg"
 
     all_params = f"{FORECAST_VARS},{EXTENDED_VARS}"
     historical_data = {}
