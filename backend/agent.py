@@ -54,6 +54,16 @@ _VENUE_REQUEST_KEYWORDS = {
     "stay near", "book a place", "resort", "resorts",
 }
 
+_SCAN_REQUEST_KEYWORDS = {
+    "best date", "best day", "safest date", "safest day", "which date",
+    "which day", "what date", "what day", "ideal date", "ideal day",
+    "optimal date", "optimal day", "best time",
+}
+
+
+def _wants_date_scan(message: str) -> bool:
+    return any(kw in message.lower() for kw in _SCAN_REQUEST_KEYWORDS)
+
 _FARMING_KEYWORDS = {kw for profile in CROP_PROFILES for kw in profile.keywords} | {
     "farming", "farm", "agriculture", "agricultural", "crop", "crops",
     "livestock", "cultivat", "sow", "sowing", "irrigat", "harvest", "planting",
@@ -436,13 +446,25 @@ Rules:
 JSON:"""
 
 
-def _deterministic_fallback_action(state: dict, candidates: list[str], allow_expand: bool) -> dict:
+def _deterministic_fallback_action(state: dict, candidates: list[str], allow_expand: bool, scan: bool = False) -> dict:
     """Only used when the LLM is unavailable or its output can't be parsed —
     a safety net around the agent's planning, not the planning itself."""
     failed = state.get("failed_locations", set())
+    tried = state.setdefault("fallback_tried", set())
+
+    def _already_handled(c: str) -> bool:
+        # Either the fallback itself already tried this exact string (catches
+        # the case where the raw candidate string doesn't fuzzy-match the
+        # geocoded name in _resolve_evaluated), or it's already been evaluated
+        # under any spelling — including by a real LLM tool call before the
+        # LLM stopped responding mid-conversation.
+        return c.strip().lower() in tried or _resolve_evaluated(state, c) is not None
+
     for c in candidates:
-        if _resolve_evaluated(state, c) is None and c.strip().lower() not in failed:
-            return {"thought": "(fallback — model unavailable)", "tool": "evaluate_location", "args": {"location": c}}
+        if not _already_handled(c) and c.strip().lower() not in failed:
+            tried.add(c.strip().lower())
+            return {"thought": "(fallback — model unavailable)", "tool": "evaluate_location",
+                     "args": {"location": c, "scan": scan}}
     suggested = state.get("suggested_cities", [])
     if not allow_expand and suggested and not state["evaluated"]:
         # A candidate came back TOO_BROAD (e.g. a whole country) and the user
@@ -454,9 +476,10 @@ def _deterministic_fallback_action(state: dict, candidates: list[str], allow_exp
                                       f"Or just say 'anywhere' and I'll pick the best one for you."}}
     if len(state["evaluated"]) < MAX_LOCATIONS:
         for c in suggested:
-            if _resolve_evaluated(state, c) is None and c.strip().lower() not in failed:
+            if not _already_handled(c) and c.strip().lower() not in failed:
+                tried.add(c.strip().lower())
                 return {"thought": "(fallback — model unavailable, trying a suggested city)",
-                        "tool": "evaluate_location", "args": {"location": c}}
+                        "tool": "evaluate_location", "args": {"location": c, "scan": scan}}
     if state["evaluated"]:
         best = max(state["evaluated"].values(), key=lambda o: o["scoring"]["score"])
         return {"thought": "(fallback — model unavailable)", "tool": "finish",
@@ -534,6 +557,12 @@ def run_agent(message: str, session_id: str) -> dict:
         candidate_hint += ("\nThe user explicitly asked about venues/hotels/places to stay — you must "
                             "call find_venues for at least one evaluated location before finishing.")
 
+    wants_scan = _wants_date_scan(message)
+    if wants_scan:
+        candidate_hint += ("\nThe user wants the single best/safest DATE across a range, not just one "
+                            "fixed day — call evaluate_location with scan=true (leave start_date/end_date "
+                            "null) so it samples across the whole period instead of one default date.")
+
     no_preference = any(kw in message.lower() for kw in _NO_PREFERENCE_KEYWORDS)
     was_awaiting_clarification = session.get("awaiting_clarification", False)
     session["awaiting_clarification"] = False
@@ -557,11 +586,11 @@ def run_agent(message: str, session_id: str) -> dict:
 
     for i in range(MAX_ITERATIONS):
         prompt = _build_decision_prompt(message, intent, scratchpad, candidate_hint)
-        decision = call_llm_json(prompt, timeout=15)
+        decision = call_llm_json(prompt, timeout=60)
 
         if decision is None or "tool" not in decision or decision.get("tool") not in TOOL_SPECS:
             consecutive_failures += 1
-            action = _deterministic_fallback_action(state, candidates, no_preference or was_awaiting_clarification)
+            action = _deterministic_fallback_action(state, candidates, no_preference or was_awaiting_clarification, scan=wants_scan)
         else:
             consecutive_failures = 0
             action = decision
@@ -572,7 +601,7 @@ def run_agent(message: str, session_id: str) -> dict:
 
         if tool_name == "finish" and not state["evaluated"]:
             consecutive_failures += 1
-            action = _deterministic_fallback_action(state, candidates, no_preference or was_awaiting_clarification)
+            action = _deterministic_fallback_action(state, candidates, no_preference or was_awaiting_clarification, scan=wants_scan)
             thought = action.get("thought") or thought
             tool_name = action.get("tool")
             args = action.get("args") or {}

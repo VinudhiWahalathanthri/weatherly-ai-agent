@@ -389,6 +389,49 @@ def search_venues_online(location: str, activity: str) -> list[dict] | None:
         return None
 
 
+def generate_tips(location: str, date: str, activity: str, weather: dict, suitability_status: str = "") -> list[str] | None:
+    """Uses Gemini to write "Tips & Reminders" tailored to the actual place, date,
+    activity, and forecasted conditions — replaces the old fixed per-activity tip
+    list with ones that engage with the real weather. Returns None if Gemini isn't
+    configured or the call/parse fails; caller falls back to the static profile tips.
+    """
+    if not _gemini_quota_available():
+        return None
+    client = _get_gemini_client()
+    if client is None:
+        return None
+    try:
+        from google.genai import types
+        temp = weather.get("feels_like", weather.get("T2M"))
+        prompt = (
+            f'Someone is planning "{activity}" in {location} on {date}. Forecast conditions: '
+            f'temperature {temp}°C, rain {weather.get("PRECTOTCORR", 0)}mm, wind {weather.get("WS10M", 0)}km/h, '
+            f'humidity {weather.get("RH2M", "unknown")}%, cloud cover {weather.get("CLOUD_AMT", weather.get("CloudPct", "unknown"))}%'
+            f'{f", overall suitability: {suitability_status}" if suitability_status else ""}.\n\n'
+            "Write 4 short, specific, practical tips/reminders for this exact plan — reference the "
+            "actual weather and activity, don't give generic advice that could apply to anything. "
+            "Each tip should be one sentence, max ~15 words.\n\n"
+            'Respond with ONLY a JSON array of 4 strings, no markdown fences, no other text.'
+        )
+        resp = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.5),
+        )
+        text = (resp.text or "").strip()
+        if not text:
+            return None
+        tips = json.loads(text)
+        if not isinstance(tips, list):
+            return None
+        cleaned = [str(t).strip() for t in tips if str(t).strip()]
+        return cleaned[:4] or None
+    except Exception as e:
+        print(f"Gemini tips generation failed: {e}")
+        _mark_gemini_exhausted(str(e))
+        return None
+
+
 def _call_ollama_json(prompt: str, timeout: int) -> dict | None:
     model = _resolve_ollama_model()
     if not model:
@@ -410,7 +453,7 @@ def _call_ollama_json(prompt: str, timeout: int) -> dict | None:
         return None
 
 
-def call_llm_json(prompt: str, timeout: int = 20) -> dict | None:
+def call_llm_json(prompt: str, timeout: int = 60) -> dict | None:
     """Unified LLM entry point shared by intent extraction and the ReAct
     agent loop (agent.py). Tries Gemini first when GEMINI_API_KEY is set —
     it's faster and more reliable at structured JSON output than the local
@@ -452,7 +495,7 @@ Respond with ONLY a JSON object, no other text, in this exact shape:
 User message: "{message}"
 JSON:"""
 
-    parsed = call_llm_json(prompt, timeout=20)
+    parsed = call_llm_json(prompt, timeout=60)
     if parsed is None:
         return None
     location = parsed.get("location") or None
