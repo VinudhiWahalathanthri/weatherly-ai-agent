@@ -41,7 +41,7 @@ import {
   maxDate,
   minDate,
   risks,
-} from "./utils/AppUtils";
+} from "./utils/appUtils";
 import {
   Select,
   SelectContent,
