@@ -72,6 +72,7 @@ import ClearIcon from "@/assets/icons/day.svg";
 import WindIcon from "@/assets/icons/rainy-1.svg";
 import Hero from "./ui/Hero";
 import Footer from "./ui/footer";
+import { API_BASE } from "@/lib/api";
 
 export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -175,7 +176,7 @@ export default function App() {
 
     try {
       setLoading(true);
-      const response = await fetch("/predict", {
+      const response = await fetch(`${API_BASE}/predict`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -213,7 +214,7 @@ export default function App() {
     setTips([]);
     setTipsLoading(true);
     try {
-      const res = await fetch("/tips", {
+      const res = await fetch(`${API_BASE}/tips`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

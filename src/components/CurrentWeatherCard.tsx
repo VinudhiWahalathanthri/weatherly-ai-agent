@@ -4,6 +4,7 @@ import {
   CloudSnow, CloudLightning, Thermometer, Wind, Droplets, MapPinned,
 } from "lucide-react";
 import { Card } from "./ui/card";
+import { API_BASE } from "@/lib/api";
 
 type WeatherNowResponse = {
   available: boolean;
@@ -46,7 +47,7 @@ export default function CurrentWeatherCard({ onAskAI }: { onAskAI?: () => void }
         setState("loading");
         try {
           const { latitude, longitude } = pos.coords;
-          const res = await fetch(`/weather/now?lat=${latitude}&lon=${longitude}`);
+          const res = await fetch(`${API_BASE}/weather/now?lat=${latitude}&lon=${longitude}`);
           const data: WeatherNowResponse = await res.json();
           if (!data.available) {
             setState("error");

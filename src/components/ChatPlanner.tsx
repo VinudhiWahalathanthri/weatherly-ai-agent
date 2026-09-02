@@ -8,6 +8,7 @@ import {
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import CurrentWeatherCard from "./CurrentWeatherCard";
+import { API_BASE } from "@/lib/api";
 import RainyIcon from "@/assets/icons/rainy-4.svg";
 import ClearIcon from "@/assets/icons/day.svg";
 import WindIcon from "@/assets/icons/rainy-1.svg";
@@ -120,8 +121,6 @@ const gradeBanner: Record<string, { bg: string; text: string; emoji: string }> =
   D:    { bg: "bg-gradient-to-r from-rose-500 to-red-500",     text: "Not recommended", emoji: "❌" },
   F:    { bg: "bg-gradient-to-r from-rose-500 to-red-500",     text: "Not recommended", emoji: "❌" },
 };
-
-const API_BASE = "";
 
 interface SpeechRecognitionResultLike {
   isFinal: boolean;
@@ -695,7 +694,7 @@ function ReportActions({ options, agentData }: { options: AgentOption[]; agentDa
 
   const downloadReport = async () => {
     try {
-      const res = await fetch(`/agent/report`, {
+      const res = await fetch(`${API_BASE}/agent/report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -725,7 +724,7 @@ function ReportActions({ options, agentData }: { options: AgentOption[]; agentDa
     setSending(true);
     setEmailStatus(null);
     try {
-      const res = await fetch(`/agent/email-report`, {
+      const res = await fetch(`${API_BASE}/agent/email-report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
