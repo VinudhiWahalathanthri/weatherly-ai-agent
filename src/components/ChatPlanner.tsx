@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   Send, Sparkles, Loader, MapPin, Calendar, ChevronDown, ChevronUp,
   Wand2, Hotel, TreePine, ExternalLink, Navigation, Sprout,
-  AlertTriangle, CheckCircle2, Shield, Heart, Star, Download,
+  AlertTriangle, CheckCircle2, Shield, Heart, Star,
   Mail, Info, Thermometer, Wind, Droplets, Cloud, Mic, Globe,
 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -692,33 +692,6 @@ function ReportActions({ options, agentData }: { options: AgentOption[]; agentDa
   const [emailStatus, setEmailStatus] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
-  const downloadReport = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/agent/report`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          options,
-          activity: agentData.intent.activity || "outdoor activity",
-          explanation: agentData.explanation || "",
-          intent: agentData.intent,
-        }),
-      });
-      const report = await res.json();
-      const blob = new Blob([report.markdown], { type: "text/markdown;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `weatherly-report-${options[0]?.location?.split(",")[0] ?? "plan"}.md`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      alert("Report generation failed. Is the backend running?");
-    }
-  };
-
   const sendEmail = async () => {
     if (!emailInput.includes("@")) { setEmailStatus("Please enter a valid email address."); return; }
     setSending(true);
@@ -765,12 +738,6 @@ function ReportActions({ options, agentData }: { options: AgentOption[]; agentDa
         <span className="text-xs font-semibold text-slate-600">Planning Report</span>
       </div>
       <div className="flex gap-2 flex-wrap">
-        <button
-          onClick={downloadReport}
-          className="flex items-center gap-1.5 text-xs bg-white border border-slate-200 rounded-full px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors shadow-sm font-medium"
-        >
-          <Download className="w-3.5 h-3.5" /> Download Report
-        </button>
         <button
           onClick={() => setShowEmail((v) => !v)}
           className="flex items-center gap-1.5 text-xs bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full px-3.5 py-2 text-white hover:from-blue-700 hover:to-indigo-700 transition-colors shadow-sm font-medium"
