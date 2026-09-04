@@ -240,8 +240,7 @@ export default function ChatPlanner() {
     recognition.onend = () => {
       setListening(false);
       recognitionRef.current = null;
-      const finalMessage = transcriptRef.current.trim();
-      if (finalMessage) send(finalMessage);
+      setInput(transcriptRef.current.trim());
     };
 
     recognitionRef.current = recognition;
