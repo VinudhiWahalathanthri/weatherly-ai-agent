@@ -1,19 +1,3 @@
-"""
-Weatherly Telegram Bot
------------------------
-A thin Telegram front-end onto the same AI planning agent used by the web app.
-Every message is forwarded to the FastAPI backend's /agent/chat endpoint
-(see backend/agent.py) and the reply is sent back as-is — no logic lives here.
-
-Requires the FastAPI backend to already be running (uvicorn main:app, in /backend).
-
-Setup:
-  1. Create a bot with @BotFather on Telegram and copy its token.
-  2. Put TELEGRAM_TOKEN=<token> in a .env file at the project root
-     (optionally also BACKEND_URL if the backend isn't at the default).
-  3. Run: python telegram_bot.py
-"""
-
 import os
 
 import requests

@@ -1,13 +1,3 @@
-"""
-Destination Images
---------------------
-Best-effort photo lookup for a recommended place, via Wikipedia's free/keyless
-REST summary API. Used to show a real photo of the destination alongside its
-weather recommendation. Degrades to None on any failure (no page, disambiguation
-page with no thumbnail, network error) so callers never need special-case
-error handling.
-"""
-
 from functools import lru_cache
 from urllib.parse import quote
 

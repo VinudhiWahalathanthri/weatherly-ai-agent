@@ -1,19 +1,3 @@
-"""
-AI Planning Agent
-------------------
-Turns a free-text request like:
-    "Can I organize a wedding in Kandy next month?"
-into a structured intent {location, date_phrase, activity, event_size},
-resolves that intent into a concrete lat/lon + date range, and hands off
-to the existing weather/ML pipeline in main.py.
-
-LLM layer (call_llm_json, below): tries Gemini first when GEMINI_API_KEY is
-set — it's faster and more reliable at structured JSON output than the
-local model. Falls back to a local Ollama model if Gemini isn't configured
-or errors, and finally to a lightweight rule-based extractor, so the agent
-still works out of the box with zero cloud setup.
-"""
-
 import json
 import os
 import re

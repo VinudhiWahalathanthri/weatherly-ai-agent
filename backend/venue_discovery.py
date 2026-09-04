@@ -1,13 +1,3 @@
-"""
-Venue Discovery Tool
----------------------
-Finds nearby hotels, parks, and event venues using the Overpass API
-(OpenStreetMap data — completely free, no API key required).
-
-Called by the planning agent after it identifies the best location/date
-so the user gets actionable links alongside the weather recommendation.
-"""
-
 import math
 import requests
 

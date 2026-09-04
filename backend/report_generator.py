@@ -1,13 +1,3 @@
-"""
-Weather Planning Report Generator
-------------------------------------
-Builds a structured planning report from agent results.
-Can output:
-  - A structured dict (for JSON API)
-  - A Markdown string (for email body / download)
-  - An HTML string (for rendered display)
-"""
-
 from __future__ import annotations
 from datetime import datetime
 

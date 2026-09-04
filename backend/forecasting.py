@@ -1,11 +1,3 @@
-"""
-Core forecasting pipeline: NASA POWER historical data -> Prophet forecasting ->
-ML suitability classification. Used directly by /predict (Manual Mode) and,
-importantly, exposed as a *tool* to the AI Planning Agent (agent.py) — the
-agent decides when and how many times to call this, it isn't hardcoded to a
-single call per request.
-"""
-
 from datetime import datetime, timedelta
 import os
 

@@ -1,12 +1,4 @@
-"""
-Farming Intelligence Module
------------------------------
-Gives crop-specific weather suitability scores and agricultural risk alerts
-on top of the standard weather forecasts.
 
-Uses the same NASA POWER data the rest of the system fetches — no extra APIs.
-All logic is free and works offline.
-"""
 
 from __future__ import annotations
 from dataclasses import dataclass, field

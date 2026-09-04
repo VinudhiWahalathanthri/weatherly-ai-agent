@@ -1,16 +1,3 @@
-"""
-Activity-Specific Scoring Engine
-----------------------------------
-Replaces the generic score_option() in agent.py with proper separated scores:
-  - Comfort Score:     How pleasant the conditions feel for humans
-  - Safety Score:      Risk of harm, cancellation or damage
-  - Suitability Score: How well conditions match THIS specific activity
-
-Each activity has its own profile with different thresholds and weights.
-The engine also generates a natural-language explanation of WHY it scored
-as it did — never just a number dump.
-"""
-
 from __future__ import annotations
 from dataclasses import dataclass, field
 import math

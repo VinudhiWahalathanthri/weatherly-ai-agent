@@ -12,8 +12,6 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // All /api/* and /agent/* and /predict calls are proxied to the FastAPI backend.
-      // This eliminates CORS entirely — the browser only talks to Vite (same origin).
       "/predict": "http://localhost:8000",
       "/agent":   "http://localhost:8000",
       "/health":  "http://localhost:8000",

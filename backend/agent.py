@@ -1,33 +1,3 @@
-"""
-Weatherly AI Planning Agent
-----------------------------
-A genuine LLM-driven ReAct-style agent, not a single-prompt wrapper and not
-a hardcoded if/elif dispatcher either. On every turn:
-
-  1. An LLM call extracts structured intent from the free-text message
-     (tool: extract_intent).
-  2. The agent enters a decide -> act -> observe loop: at each step an LLM
-     call is given the intent, session memory, and everything gathered so
-     far, and DECIDES the next tool to call (geocode a place, evaluate a
-     location's weather/suitability, check crop-specific farming risk, look
-     up real nearby venues, ask the user a clarifying question, or finish
-     with a recommendation). Nothing about which locations get compared,
-     whether farming/venue tools run, or how many rounds happen is
-     hardcoded — the model chooses all of that at runtime, and the
-     "steps" trace returned to the UI is the model's own stated reasoning
-     for each choice, not a templated description of fixed branches.
-  3. The decision engine (scoring_engine.py) scores every location the
-     agent decided to evaluate; the agent itself picks the winner and
-     explains its own reasoning in the final reply.
-  4. Session memory carries the last intent across turns so follow-ups
-     ("what about Galle instead?") don't need to repeat context.
-
-Guardrails: a 4B local model won't always return clean JSON. If a decision
-call fails or is unparsable, a minimal deterministic fallback keeps the
-loop moving (and says so plainly in the trace) instead of hanging the
-request — this is a safety net around the agent, not the agent's actual
-planning logic.
-"""
 
 import json
 import math

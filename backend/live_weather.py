@@ -1,17 +1,3 @@
-"""
-Live Weather (Open-Meteo)
---------------------------
-Free, keyless real-forecast data source for near-term dates ("today", "tomorrow",
-"this weekend", up to ~16 days out). This is what powers accurate answers for the
-questions people actually ask most when planning a day or trip — NASA POWER +
-Prophet (forecasting.py's climatology path) is a 20-year historical average, built
-for long-range estimates ("next month", "6 months from now"), not live conditions.
-
-fetch_open_meteo() reshapes Open-Meteo's response into the exact per-day key set
-forecasting.py's climatology path produces (T2M, T2M_MAX, T2M_MIN, PRECTOTCORR,
-WS10M, RH2M, CLOUD_AMT) so scoring_engine.compute_scores() needs no changes at all.
-"""
-
 from collections import defaultdict
 from datetime import datetime, timedelta
 
